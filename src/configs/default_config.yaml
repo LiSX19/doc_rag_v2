@@ -1,0 +1,169 @@
+# ==================== DocRAG 全局默认配置 ====================
+# 此文件包含所有参数的完整默认值，不建议直接修改
+# 用户配置请使用项目根目录的 config.yaml
+
+# ==================== 项目信息 ====================
+project:
+  name: "DocRAG"
+  version: "1.0.0"
+  description: "文档RAG系统"
+
+# ==================== 路径配置 ====================
+paths:
+  input_dir: "./data"
+  output_dir: "./outputs"
+  models_dir: "./models"
+  logs_dir: "./logs"
+  cache_dir: "./cache"
+
+# ==================== 日志配置 ====================
+logging:
+  # 全局日志级别（文件和控制台的默认级别）
+  level: "INFO"
+  # 控制台日志级别（不设置则使用全局level）
+  # 可选值: DEBUG, INFO, WARNING, ERROR, NONE(不输出到控制台)
+  console_level: "INFO"
+  # 是否输出到控制台（console_level为NONE时自动关闭）
+  console_output: true
+  format: "structured"
+  file: "./logs/doc_rag.log"
+  max_size: "100MB"
+  backup_count: 3
+
+# ==================== 文档加载配置 ====================
+loader:
+  # 支持的文件扩展名
+  supported_extensions:
+    - ".pdf"
+    - ".docx"
+    - ".doc"
+    - ".xlsx"
+    - ".xls"
+    - ".pptx"
+    - ".ppt"
+    - ".ppsx"
+    - ".txt"
+    - ".md"
+    - ".csv"
+    - ".html"
+    - ".htm"
+    - ".rtf"
+    - ".caj"
+  
+  # 并行处理配置
+  parallel:
+    enabled: true
+    max_workers: 4
+  
+  # 元数据提取
+  extract_metadata: true
+  
+  # 文件过滤配置
+  filters:
+    min_file_size: 1024  # 最小文件大小（字节），默认1KB
+  
+  # Word文档加载配置
+  word:
+    max_retries: 3
+    retry_delay: 2
+  
+  # PPT加载配置
+  ppt:
+    max_retries: 3
+    retry_delay: 2
+  
+  # RTF加载配置
+  rtf:
+    max_retries: 3
+    retry_delay: 2
+  
+  # CAJ加载配置
+  caj:
+    caj2pdf_dir: "./src/loaders/caj2pdf"
+
+# ==================== OCR配置 ====================
+ocr:
+  enabled: true
+  conda_env: "OCR"
+  conda_path: ""  # 留空则自动查找
+  progress_callback: null
+
+# ==================== 文本清洗配置 ====================
+cleaner:
+  # 清洗流程步骤
+  pipeline:
+    - "structure"
+    - "encoding"
+    - "simplified"
+  
+  # 自定义规则文件路径
+  custom_rules_file: "./src/configs/cleaning_rules.yaml"
+  
+  # 质量检查配置
+  quality_check:
+    enabled: true
+    min_length: 10
+    max_length_ratio: 0.1
+  
+  # Unstructured结构清洗配置
+  unstructured:
+    enabled: true
+    options:
+      clean_bullets: true
+      clean_extra_whitespace: true
+      clean_non_ascii_chars: false
+      group_broken_paragraphs: true
+      remove_punctuation: false
+  
+  # 并行清洗配置
+  parallel:
+    enabled: false
+    max_workers: 4
+
+# ==================== 文本分块配置 ====================
+chunker:
+  # 分块策略
+  strategy: "recursive"
+  
+  # 分块大小
+  chunk_size: 500
+  
+  # 分块重叠长度
+  chunk_overlap: 50
+  
+  # 分隔符列表（中文优化）
+  separators:
+    - "\n\n"  # 段落
+    - "\n"    # 换行
+    - "。"     # 句号
+    - "；"    # 分号
+    - "，"    # 逗号
+    - " "     # 空格
+    - ""      # 字符
+  
+  # 后处理配置
+  post_process:
+    filter_short_chunks: true
+    min_chunk_length: 20
+    merge_adjacent_short: true
+  
+  # 数据库配置
+  db_path: "./cache/chunks_db.json"
+
+# ==================== 性能配置 ====================
+performance:
+  max_workers: 2
+  parallel_processing: true
+  
+  # 增量更新配置
+  incremental_update:
+    enabled: true
+    hash_file: "./cache/file_hashes.json"
+    timestamp_file: "./cache/file_timestamps.json"
+  
+  # 缓存配置
+  cache:
+    enabled: true
+    type: "disk"
+    disk_path: "./cache"
+    max_size: "5GB"

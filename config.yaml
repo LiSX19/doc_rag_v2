@@ -1,0 +1,30 @@
+paths:
+  input_dir: F:\doc_rag\data
+  output_dir: outputs
+  models_dir: models
+logging:
+  level: INFO           # 文件记录 INFO 及以上
+  console_level: WARNING 
+  console_output: true
+loader:
+  parallel:
+    enabled: true
+    max_workers: 4
+  ocr:
+    enabled: true
+cleaner:
+  unstructured:
+    enabled: true
+  quality_check:
+    enabled: true
+  parallel:
+    enabled: false
+chunker:
+  chunk_size: 500
+  chunk_overlap: 50
+  post_process:
+    min_chunk_length: 100
+performance:
+  max_workers: 6
+  incremental_update:
+    enabled: true

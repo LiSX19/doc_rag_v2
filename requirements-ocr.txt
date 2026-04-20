@@ -1,0 +1,90 @@
+# Python 版本: 3.11 (推荐)
+# OCR环境 (OCR) - 仅用于OCR识别 (CPU版本)
+#
+# 安装步骤:
+# 1. conda create -n OCR python=3.11 -y
+# 2. conda activate OCR
+# 3. pip install -r requirements-ocr.txt
+#
+# 说明:
+# 此环境仅用于PDF OCR识别，当主环境(RAG)无法提取PDF文本时，
+# 通过子进程调用此环境的OCR功能。
+
+# ==================== Python版本要求 ====================
+# Python: 3.8 / 3.9 / 3.10 / 3.11 / 3.12
+# 推荐: 3.11 (经过充分测试)
+
+# ==================== 核心依赖 (严格版本控制) ====================
+# PaddlePaddle CPU版本 - 深度学习框架
+# 官方文档: https://www.paddlepaddle.org.cn/install/old
+# Python 3.11 支持: paddlepaddle>=2.5.0
+paddlepaddle==2.6.2
+
+# PaddleOCR - OCR识别引擎
+# 与 paddlepaddle 2.6.x 兼容的版本
+paddleocr==2.7.3
+
+# ==================== 基础依赖 (版本锁定) ====================
+# NumPy - 数值计算 (PaddleOCR要求numpy<2.0)
+numpy==1.24.4
+
+# Pillow - 图像处理
+Pillow==10.2.0
+
+# PyMuPDF - PDF转图片 (fitz)
+PyMuPDF==1.23.26
+
+# ==================== PaddleOCR 依赖库 ====================
+# OpenCV - 图像处理 (PaddleOCR 2.7.3 要求 <=4.6.0.66)
+opencv-python==4.6.0.66
+
+# 图像预处理
+imgaug==0.4.0
+
+# 可视化
+matplotlib==3.8.2
+
+# 进度条
+tqdm==4.66.1
+
+# 配置解析
+pyyaml==6.0.1
+
+# 图像编码
+imageio==2.33.1
+
+# 科学计算
+scipy==1.11.4
+
+# 数据处理
+pandas==2.1.4
+
+# ==================== 工具库 ====================
+# 日志
+structlog==23.2.0
+
+# 文件路径处理
+pathlib2==2.3.7.post1
+
+# ==================== 可选依赖 ====================
+# 如需使用PDF表格识别功能，可安装:
+# pdf2image==1.17.0
+
+# ==================== 版本兼容性说明 ====================
+# 测试通过的版本组合:
+# - Python: 3.11.7
+# - paddlepaddle: 2.6.2
+# - paddleocr: 2.7.3
+# - numpy: 1.24.4
+#
+# 重要提示:
+# 1. numpy必须<2.0，否则会出现兼容性问题
+# 2. paddlepaddle 2.6.x 与 paddleocr 2.7.x 搭配稳定
+# 3. 不要安装paddlepaddle-gpu，本配置仅用于CPU
+#
+# ==================== 安装源 ====================
+# 如安装缓慢，可使用清华镜像:
+# pip install -r requirements-ocr.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+#
+# 或使用百度飞桨镜像安装paddlepaddle:
+# pip install paddlepaddle==2.6.2 -i https://www.paddlepaddle.org.cn/packages/stable/cpu/

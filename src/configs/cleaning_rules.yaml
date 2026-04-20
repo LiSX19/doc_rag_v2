@@ -1,0 +1,109 @@
+# ==================== 文本清洗规则配置 ====================
+# 支持正则表达式替换规则
+
+rules:
+  # ==================== 通用噪声规则 ====================
+  - name: "remove_extra_whitespace"
+    description: "移除多余空白字符（不包括换行符）"
+    pattern: "[ \\t]+"
+    replacement: " "
+    enabled: true
+    priority: 1
+
+  - name: "remove_control_chars"
+    description: "移除控制字符（不包括换行符）"
+    pattern: "[\\x00-\\x08\\x0b-\\x0c\\x0e-\\x1f\\x7f]"
+    replacement: ""
+    enabled: true
+    priority: 2
+
+  - name: "normalize_newlines"
+    description: "规范化换行符"
+    pattern: "\\r\\n|\\r"
+    replacement: "\\n"
+    enabled: true
+    priority: 3
+
+  # ==================== 页眉页脚规则 ====================
+  - name: "remove_page_numbers"
+    description: "移除页码"
+    pattern: "^\\s*\\d+\\s*$"
+    replacement: ""
+    enabled: true
+    priority: 10
+
+  - name: "remove_page_headers"
+    description: "移除页眉（如：第X页/共Y页）"
+    pattern: "第\\s*\\d+\\s*页\\s*/\\s*共\\s*\\d+\\s*页"
+    replacement: ""
+    enabled: true
+    priority: 11
+
+  # ==================== 特殊标记规则 ====================
+  - name: "remove_url"
+    description: "移除URL链接"
+    pattern: "https?://[^\\s]+"
+    replacement: ""
+    enabled: false
+    priority: 20
+
+  - name: "remove_email"
+    description: "移除邮箱地址"
+    pattern: "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+    replacement: ""
+    enabled: false
+    priority: 21
+
+  # ==================== 文档特定规则 ====================
+  - name: "remove_figure_captions"
+    description: "移除图注（如：图1-1）"
+    pattern: "图\\s*\\d+[\\-\\.]?\\d*"
+    replacement: ""
+    enabled: false
+    priority: 30
+
+  - name: "remove_table_captions"
+    description: "移除表注（如：表1-1）"
+    pattern: "表\\s*\\d+[\\-\\.]?\\d*"
+    replacement: ""
+    enabled: false
+    priority: 31
+
+  # ==================== 自定义业务规则示例 ====================
+  # 根据实际业务需求添加自定义规则
+  # - name: "custom_rule_example"
+  #   description: "自定义规则示例"
+  #   pattern: "需要匹配的模式"
+  #   replacement: "替换内容"
+  #   enabled: false
+  #   priority: 100
+
+# ==================== 规则分组 ====================
+groups:
+  - name: "basic"
+    description: "基础清洗规则"
+    rules:
+      - "remove_extra_whitespace"
+      - "remove_control_chars"
+      - "normalize_newlines"
+
+  - name: "document"
+    description: "文档清洗规则"
+    rules:
+      - "remove_page_numbers"
+      - "remove_page_headers"
+
+  - name: "privacy"
+    description: "隐私信息清洗"
+    rules:
+      - "remove_url"
+      - "remove_email"
+
+  - name: "all"
+    description: "所有规则"
+    rules:
+      - "remove_extra_whitespace"
+      - "remove_control_chars"
+      - "normalize_newlines"
+      - "remove_page_numbers"
+      - "remove_page_headers"

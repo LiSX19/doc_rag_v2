@@ -1,0 +1,114 @@
+# Python 版本: 3.11
+# 主环境 (RAG) - 常规文档处理
+# 安装: conda activate RAG && pip install -r requirements.txt
+
+# ==================== 核心依赖 ====================
+# 配置管理
+pyyaml>=6.0
+
+# 日志与监控
+structlog>=23.0.0
+
+# 命令行接口
+click>=8.1.0
+
+# ==================== 文档加载与解析 (Loader & Parser) ====================
+# Unstructured - 文档解析核心库
+unstructured[all-docs]>=0.12.0
+unstructured-inference>=0.12.0
+pdfplumber>=0.11.0
+
+# caj格式文档解析
+imagesize==1.3.0
+PyPDF2==2.2.0
+
+
+# 注意: PaddleOCR已移至独立OCR环境
+# OCR环境路径: requirements-ocr.txt
+# OCR环境名称: OCR (conda activate OCR)
+
+# pywin32 - Windows旧版Office格式支持 (仅Windows)
+pywin32>=306; sys_platform == "win32"
+
+# 其他文档格式支持
+python-docx>=0.8.11
+openpyxl>=3.1.0
+python-pptx>=0.6.21
+
+# ==================== 文本清洗 (Clean) ====================
+# 编码修复
+ftfy>=6.1.0
+
+# 繁简转换
+opencc-python-reimplemented>=0.1.7
+
+# ==================== 文本分块 (Chunking) ====================
+# LangChain 文本分割器
+langchain>=0.1.0
+langchain-text-splitters>=0.0.1
+
+# ==================== 文本去重 (Dedup) ====================
+# SimHash
+simhash>=2.1.0
+
+# 局部敏感哈希
+datasketch>=1.6.0
+
+# 向量相似度搜索
+faiss-cpu>=1.7.4
+
+# 聚类算法
+scikit-learn>=1.3.0
+
+# ==================== Embedding模型 ====================
+# Sentence Transformers - BGE模型支持
+sentence-transformers>=2.3.0
+
+# Transformers
+transformers>=4.36.0
+torch>=2.1.0
+numpy>=1.24.0
+
+# 可选: OpenAI Embedding支持
+openai>=1.0.0
+
+# ==================== 向量数据库 (Vector Store) ====================
+# Chroma - 向量数据库
+chromadb>=0.4.18
+
+# ==================== 检索与重排序 (Retrieval & Rerank) ====================
+# BGE Reranker
+FlagEmbedding>=1.2.0
+
+# ==================== 评估与监控 (Evaluation & Monitoring) ====================
+# RAGAS - RAG评估
+ragas>=0.1.0
+
+# 可视化
+matplotlib>=3.8.0
+plotly>=5.18.0
+
+# Prometheus监控 (可选)
+prometheus-client>=0.19.0
+
+# ==================== 工具库 ====================
+# 数据处理
+pandas>=2.1.0
+tqdm>=4.66.0
+
+# HTTP请求
+requests>=2.31.0
+httpx>=0.25.0
+
+# 缓存
+redis>=5.0.0
+diskcache>=5.6.0
+
+# ==================== 测试依赖 ====================
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.0
+
+# ==================== 类型提示 ====================
+typing-extensions>=4.8.0
+pydantic>=2.5.0
