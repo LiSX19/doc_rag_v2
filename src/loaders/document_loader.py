@@ -2,7 +2,6 @@
 文档加载统一入口
 
 提供并行文档加载、元数据提取、缓存等功能。
-支持文件大小过滤。
 """
 
 import hashlib
@@ -34,7 +33,6 @@ class DocumentLoader:
                 - loader.parallel.enabled: 是否启用并行处理
                 - loader.parallel.max_workers: 最大工作进程数
                 - loader.extract_metadata: 是否提取元数据
-                - loader.filters.min_file_size: 最小文件大小（字节，默认1024）
                 - paths.cache_dir: 缓存目录
         """
         self.config = config or {}
@@ -46,10 +44,6 @@ class DocumentLoader:
 
         # 元数据提取
         self.extract_metadata = self.config.get('loader', {}).get('extract_metadata', True)
-
-        # 文件过滤器配置
-        filter_config = self.config.get('loader', {}).get('filters', {})
-        self.min_file_size = filter_config.get('min_file_size', 1024)  # 默认1KB
 
         # 缓存配置
         self.cache_dir = Path(self.config.get('paths', {}).get('cache_dir', './cache'))
@@ -63,54 +57,11 @@ class DocumentLoader:
         
         # 失败文件记录
         self.failed_files: List[Dict[str, Any]] = []
-        self.filtered_files: List[Dict[str, Any]] = []
         
         # 增量更新追踪器
         self.incremental_tracker = IncrementalTracker(config)
 
         logger.info(f"文档加载器初始化完成，支持格式: {len(self.supported_extensions)} 种")
-        logger.info(f"文件大小过滤器: 最小 {self.min_file_size} 字节 ({self.min_file_size / 1024:.1f} KB)")
-
-    def _filter_by_size(self, file_path: Path) -> bool:
-        """
-        根据文件大小过滤
-
-        Args:
-            file_path: 文件路径
-
-        Returns:
-            True 表示文件大小符合要求，False 表示被过滤掉
-        """
-        try:
-            file_size = file_path.stat().st_size
-            if file_size < self.min_file_size:
-                logger.warning(
-                    f"文件被过滤（大小不足）: {file_path.name}, "
-                    f"大小: {file_size} 字节 ({file_size / 1024:.2f} KB), "
-                    f"最小要求: {self.min_file_size} 字节 ({self.min_file_size / 1024:.1f} KB)"
-                )
-                # 记录被过滤的文件
-                self.filtered_files.append({
-                    'file_path': str(file_path),
-                    'filename': file_path.name,
-                    'reason': 'size_too_small',
-                    'file_size': file_size,
-                    'min_size': self.min_file_size,
-                    'timestamp': datetime.now().isoformat(),
-                })
-                return False
-            return True
-        except Exception as e:
-            logger.error(f"检查文件大小时出错: {file_path}, 错误: {e}")
-            # 记录检查失败的文件
-            self.failed_files.append({
-                'file_path': str(file_path),
-                'filename': file_path.name,
-                'reason': 'size_check_error',
-                'error': str(e),
-                'timestamp': datetime.now().isoformat(),
-            })
-            return False
 
     def load_document(self, file_path: Union[str, Path]) -> Dict[str, Any]:
         """
@@ -126,13 +77,6 @@ class DocumentLoader:
 
         if not file_path.exists():
             raise FileNotFoundError(f"文件不存在: {file_path}")
-
-        # 检查文件大小
-        if not self._filter_by_size(file_path):
-            raise ValueError(
-                f"文件大小不足: {file_path.name}, "
-                f"最小要求: {self.min_file_size} 字节 ({self.min_file_size / 1024:.1f} KB)"
-            )
 
         # 检查文件类型
         if not LoaderFactory.is_supported(file_path):
@@ -192,35 +136,19 @@ class DocumentLoader:
         if not file_paths:
             return []
 
-        # 先进行大小过滤
-        filtered_paths = []
-        skipped_count = 0
-        for fp in file_paths:
-            fp = Path(fp)
-            if self._filter_by_size(fp):
-                filtered_paths.append(fp)
-            else:
-                skipped_count += 1
-
-        if skipped_count > 0:
-            logger.warning(f"批量加载时过滤了 {skipped_count} 个大小不足的文件")
-
-        if not filtered_paths:
-            logger.warning("所有文件都被过滤，没有可加载的文档")
-            return []
-        
         # 增量更新筛选
         if incremental and self.incremental_tracker.enabled:
-            filtered_paths, inc_stats = self.incremental_tracker.filter_files(filtered_paths)
+            filtered_paths, inc_stats = self.incremental_tracker.filter_files(file_paths)
             
             if not filtered_paths:
                 logger.info("所有文件都已是最新，无需处理")
                 return []
         else:
+            filtered_paths = file_paths
             logger.info("全量更新模式：处理所有文件")
 
         total = len(filtered_paths)
-        logger.info(f"开始批量加载 {total} 个文档（原始 {len(file_paths)} 个，过滤 {skipped_count} 个）")
+        logger.info(f"开始批量加载 {total} 个文档")
 
         results = []
 
@@ -364,15 +292,6 @@ class DocumentLoader:
         """
         return self.failed_files.copy()
 
-    def get_filtered_files(self) -> List[Dict[str, Any]]:
-        """
-        获取被过滤的文件列表
-        
-        Returns:
-            被过滤文件信息列表
-        """
-        return self.filtered_files.copy()
-
     def save_failed_files_report(self, output_path: Optional[Union[str, Path]] = None) -> Path:
         """
         保存失败文件报告
@@ -395,11 +314,8 @@ class DocumentLoader:
             'timestamp': datetime.now().isoformat(),
             'summary': {
                 'total_failed': len(self.failed_files),
-                'total_filtered': len(self.filtered_files),
-                'total_issues': len(self.failed_files) + len(self.filtered_files),
             },
             'failed_files': self.failed_files,
-            'filtered_files': self.filtered_files,
         }
         
         with open(output_path, 'w', encoding='utf-8') as f:
@@ -411,7 +327,6 @@ class DocumentLoader:
     def clear_failed_records(self):
         """清空失败文件记录"""
         self.failed_files.clear()
-        self.filtered_files.clear()
         logger.info("已清空失败文件记录")
 
     def set_incremental_mode(self, enabled: bool):

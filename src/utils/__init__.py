@@ -5,6 +5,7 @@
 """
 
 from .incremental_tracker import IncrementalTracker
+from .pipeline_tracker import PipelineStageTracker
 from .logger import get_logger, setup_logging
 from .file_utils import FileUtils
 from .output_manager import OutputManager
@@ -16,6 +17,7 @@ __all__ = [
     "FileUtils",
     "OutputManager",
     "IncrementalTracker",
+    "PipelineStageTracker",
     "InteractiveConfigurator",
     "show_current_config",
     "get_config_categories",

@@ -15,6 +15,13 @@ paths:
   models_dir: "./models"
   logs_dir: "./logs"
   cache_dir: "./cache"
+  # 输出子目录（基于output_dir）
+  loaded_dir: "./outputs/loaded"
+  cleaned_dir: "./outputs/cleaned"
+  chunks_dir: "./outputs/chunks"
+  embeddings_dir: "./outputs/embeddings"
+  retrieval_dir: "./outputs/retrieval"
+  evaluation_dir: "./outputs/evaluation"
 
 # ==================== 日志配置 ====================
 logging:
@@ -32,24 +39,6 @@ logging:
 
 # ==================== 文档加载配置 ====================
 loader:
-  # 支持的文件扩展名
-  supported_extensions:
-    - ".pdf"
-    - ".docx"
-    - ".doc"
-    - ".xlsx"
-    - ".xls"
-    - ".pptx"
-    - ".ppt"
-    - ".ppsx"
-    - ".txt"
-    - ".md"
-    - ".csv"
-    - ".html"
-    - ".htm"
-    - ".rtf"
-    - ".caj"
-  
   # 并行处理配置
   parallel:
     enabled: true
@@ -76,10 +65,19 @@ loader:
   rtf:
     max_retries: 3
     retry_delay: 2
+    timeout: 30  # 单个文件处理超时（秒）
   
   # CAJ加载配置
   caj:
     caj2pdf_dir: "./src/loaders/caj2pdf"
+  
+  # Unstructured配置
+  unstructured:
+    # OCR语言设置（Tesseract语言代码）
+    # chi_sim = 简体中文, chi_tra = 繁体中文, eng = 英文
+    languages:
+      - "chi_sim"
+      - "eng"
 
 # ==================== OCR配置 ====================
 ocr:
@@ -87,6 +85,13 @@ ocr:
   conda_env: "OCR"
   conda_path: ""  # 留空则自动查找
   progress_callback: null
+
+# ==================== 构建配置 ====================
+build:
+  # 默认构建参数
+  incremental: true   # 默认启用增量更新
+  ocr: false          # 默认不启用OCR清洗
+  file_limit: null    # 默认不限制文件数量
 
 # ==================== 文本清洗配置 ====================
 cleaner:
@@ -122,9 +127,6 @@ cleaner:
 
 # ==================== 文本分块配置 ====================
 chunker:
-  # 分块策略
-  strategy: "recursive"
-  
   # 分块大小
   chunk_size: 500
   
@@ -136,6 +138,11 @@ chunker:
     - "\n\n"  # 段落
     - "\n"    # 换行
     - "。"     # 句号
+    - "？"     # 问号
+    - "?"      # 问号
+    - "！"     # 感叹号
+    - "！"     # 感叹号
+    - "……"     # 省略号
     - "；"    # 分号
     - "，"    # 逗号
     - " "     # 空格
@@ -150,20 +157,186 @@ chunker:
   # 数据库配置
   db_path: "./cache/chunks_db.json"
 
+# ==================== 编码配置 ====================
+encoder:
+  # 编码器类型: dense(稠密向量) / sparse(稀疏向量) / hybrid(混合)
+  type: "dense"
+  
+  # 缓存配置
+  cache_dir: "./cache/encodings"
+  incremental: true
+  
+  # 稠密向量编码配置
+  dense:
+    model_name: "BAAI/bge-small-zh-v1.5"
+    model_path: null  # 本地模型路径（优先使用）
+    device: "auto"  # auto/cpu/cuda
+    normalize: true
+    batch_size: 32
+    max_seq_length: 512
+    instruction: "为这个句子生成表示以用于检索相关文章："
+    use_instruction: true
+  
+  # 稀疏向量编码配置
+  sparse:
+    # BM25 配置
+    bm25:
+      k1: 1.5
+      b: 0.75
+      max_features: 50000
+      min_df: 1
+      max_df: 0.95
+    
+    # TF-IDF 配置
+    tfidf:
+      max_features: 50000
+      min_df: 1
+      max_df: 0.95
+      ngram_range: [1, 2]
+  
+  # 混合编码配置
+  hybrid:
+    dense_weight: 0.7
+    sparse_weight: 0.3
+    sparse_type: "bm25"  # bm25 / tfidf
+    dense_config: {}
+    sparse_config: {}
+
+# ==================== 向量数据库配置 ====================
+vector_store:
+  chroma:
+    persist_directory: "./chroma_db"
+    collection_name: "doc_rag_collection"
+    hnsw_space: "cosine"
+    hnsw_construction_ef: 128
+    hnsw_search_ef: 64
+    hnsw_M: 16
+
+# ==================== 检索配置 ====================
+retriever:
+  top_k: 5
+  filter:
+    threshold: 0.5
+  rerank:
+    enabled: false
+    model: "BAAI/bge-reranker-base"
+
+# ==================== 去重配置 ====================
+deduper:
+  # 去重策略: test（测试环境）/ production（生产环境）
+  strategy: "test"
+  
+  # 重复块处理策略: keep_first（保留第一个）/ merge（合并内容）
+  duplicate_strategy: "keep_first"
+  
+  # 测试环境配置
+  test:
+    # 是否启用哈希去重（精确去重）
+    use_hash: true
+    # 是否启用SimHash去重（近似去重）
+    use_simhash: true
+    # SimHash阈值（汉明距离小于等于此值视为重复）
+    simhash_threshold: 3
+  
+  # 生产环境配置
+  production:
+    # 是否启用哈希去重
+    use_hash: true
+    # 是否启用SimHash去重
+    use_simhash: true
+    # 是否启用Embedding去重（语义去重，需要Embedding模型）
+    use_embedding: false
+    # SimHash阈值
+    simhash_threshold: 3
+    # Embedding相似度阈值（大于此值视为重复）
+    embedding_threshold: 0.95
+
+# ==================== 输出控制配置 ====================
+output:
+  # 输出模式: test(测试模式) / production(生产模式) / minimal(最小输出) / custom(自定义)
+  mode: "test"
+  
+  # 各阶段中间产物输出控制（mode为custom时生效）
+  # 设置为 true 则输出该阶段产物，false 则不输出
+  stages:
+    loaded: false      # 加载阶段：输出原始文本
+    cleaned: false     # 清洗阶段：输出清洗后的文本
+    chunks: false      # 分块阶段：输出分块结果
+    dedup_report: true  # 去重阶段：输出去重报告
+    embeddings: true  # 向量化阶段：输出embedding向量
+    retrieval: true   # 检索阶段：输出检索结果
+    evaluation: true  # 评估阶段：输出评估报告
+  
+  # 测试模式配置（输出所有中间产物）
+  test:
+    save_loaded: true
+    save_cleaned: true
+    save_chunks: true
+    save_dedup_report: true
+    save_embeddings: true
+    save_retrieval: true
+    save_evaluation: true
+  
+  # 生产模式配置（只输出必要产物）
+  production:
+    save_loaded: false
+    save_cleaned: false
+    save_chunks: false
+    save_dedup_report: true
+    save_embeddings: false
+    save_retrieval: false
+    save_evaluation: true
+  
+  # 最小输出模式（几乎不输出中间产物）
+  minimal:
+    save_loaded: false
+    save_cleaned: false
+    save_chunks: false
+    save_dedup_report: false
+    save_embeddings: false
+    save_retrieval: false
+    save_evaluation: false
+
+# ==================== 评估配置 ====================
+evaluator:
+  # 评估器类型 (目前仅支持ragas)
+  type: "ragas"
+  
+  # RAGAS评估器配置
+  ragas:
+    # 要计算的指标列表
+    metrics:
+      - "faithfulness"
+      - "answer_relevancy"
+      - "context_precision"
+      - "context_recall"
+    
+    # LLM配置（默认使用OpenAI，可配置使用本地Ollama）
+    llm:
+      # 提供商: openai / ollama
+      provider: "ollama"
+      # 模型名称（ollama: qwen3:4b, openai: gpt-4o-mini）
+      model: "qwen3:4b"
+      # Ollama服务地址（provider为ollama时生效）
+      base_url: "http://localhost:11434/v1"
+      # API密钥（ollama可填任意值，openai需填写真实密钥）
+      api_key: "ollama"
+    
+    # 输出配置
+    output:
+      format: "json"          # 报告格式: json/csv/both
+      save_details: true      # 是否保存详细评估记录
+      generate_summary: true  # 是否生成摘要报告
+
 # ==================== 性能配置 ====================
 performance:
   max_workers: 2
-  parallel_processing: true
   
   # 增量更新配置
   incremental_update:
     enabled: true
     hash_file: "./cache/file_hashes.json"
     timestamp_file: "./cache/file_timestamps.json"
-  
-  # 缓存配置
-  cache:
-    enabled: true
-    type: "disk"
-    disk_path: "./cache"
-    max_size: "5GB"
+    error_file: "./cache/file_errors.json"
+    progress_file: "./cache/progress.json"
+

@@ -69,13 +69,16 @@ docs = loader.load_documents(file_paths, incremental=False)
 
 ## 配置
 
-在 `configs.yaml` 中配置：
+在 `config.yaml` 中配置（用户配置）或在 `default_config.yaml` 中查看默认配置：
 
 ```yaml
-incremental_update:
-  enabled: true                    # 默认启用增量更新
-  hash_file: "./cache/file_hashes.json"
-  timestamp_file: "./cache/file_timestamps.json"
+performance:
+  incremental_update:
+    enabled: true                    # 默认启用增量更新
+    hash_file: "./cache/file_hashes.json"
+    timestamp_file: "./cache/file_timestamps.json"
+    error_file: "./cache/file_errors.json"
+    progress_file: "./cache/progress.json"
 ```
 
 ## 输出示例

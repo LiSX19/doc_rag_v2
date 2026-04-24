@@ -4,12 +4,30 @@
 提供结构化日志记录功能。
 """
 
+import json
 import logging
 import sys
 from pathlib import Path
 from typing import Optional
 
 import structlog
+
+
+class JsonFormatter(logging.Formatter):
+    """自定义JSON格式化器，确保中文不被转义"""
+    
+    def format(self, record):
+        # 获取消息
+        msg = record.getMessage()
+        
+        # 如果是JSON字符串，尝试解析并重新格式化
+        try:
+            data = json.loads(msg)
+            # 使用 ensure_ascii=False 确保中文正常显示
+            return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
+        except (json.JSONDecodeError, TypeError):
+            # 不是JSON，直接返回原消息
+            return msg
 
 
 def setup_logging(
@@ -74,7 +92,8 @@ def setup_logging(
         file_handler.setLevel(getattr(logging, level.upper()))
         
         if format_type == "structured":
-            formatter = logging.Formatter('%(message)s')
+            # 使用自定义JSON格式化器确保中文不被转义
+            formatter = JsonFormatter()
         else:
             formatter = logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(message)s'

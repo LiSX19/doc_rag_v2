@@ -35,15 +35,26 @@ class OutputManager:
         self.mode = output_config.get('mode', 'test')
         
         # 根据模式获取输出配置
-        mode_config = output_config.get(self.mode, output_config.get('test', {}))
-        
-        self._save_loaded = mode_config.get('save_loaded', True)
-        self._save_cleaned = mode_config.get('save_cleaned', True)
-        self._save_chunks = mode_config.get('save_chunks', True)
-        self._save_dedup_report = mode_config.get('save_dedup_report', True)
-        self._save_embeddings = mode_config.get('save_embeddings', True)
-        self._save_retrieval = mode_config.get('save_retrieval', True)
-        self._save_evaluation = mode_config.get('save_evaluation', True)
+        if self.mode == 'custom':
+            # 自定义模式：使用 stages 配置
+            stages_config = output_config.get('stages', {})
+            self._save_loaded = stages_config.get('loaded', True)
+            self._save_cleaned = stages_config.get('cleaned', True)
+            self._save_chunks = stages_config.get('chunks', True)
+            self._save_dedup_report = stages_config.get('dedup_report', True)
+            self._save_embeddings = stages_config.get('embeddings', True)
+            self._save_retrieval = stages_config.get('retrieval', True)
+            self._save_evaluation = stages_config.get('evaluation', True)
+        else:
+            # 预设模式：使用 mode 对应的配置
+            mode_config = output_config.get(self.mode, output_config.get('test', {}))
+            self._save_loaded = mode_config.get('save_loaded', True)
+            self._save_cleaned = mode_config.get('save_cleaned', True)
+            self._save_chunks = mode_config.get('save_chunks', True)
+            self._save_dedup_report = mode_config.get('save_dedup_report', True)
+            self._save_embeddings = mode_config.get('save_embeddings', True)
+            self._save_retrieval = mode_config.get('save_retrieval', True)
+            self._save_evaluation = mode_config.get('save_evaluation', True)
         
         # 输出目录
         paths_config = self.config.get('paths', {})
@@ -55,11 +66,45 @@ class OutputManager:
         self.retrieval_dir = Path(paths_config.get('retrieval_dir', './outputs/retrieval'))
         self.evaluation_dir = Path(paths_config.get('evaluation_dir', './outputs/evaluation'))
         
-        # 创建输出目录
+        # 创建输出目录（只创建需要输出的目录）
         self._ensure_directories()
         
         logger.info(f"输出管理器初始化完成，模式: {self.mode}")
         logger.info(f"输出目录: {self.output_dir}")
+        logger.debug(f"输出控制: loaded={self._save_loaded}, cleaned={self._save_cleaned}, "
+                    f"chunks={self._save_chunks}, dedup={self._save_dedup_report}")
+    
+    def set_stage_output(self, stage: str, enabled: bool):
+        """
+        动态设置某个阶段的输出开关
+        
+        Args:
+            stage: 阶段名称 (loaded/cleaned/chunks/dedup_report/embeddings/retrieval/evaluation)
+            enabled: 是否启用输出
+        """
+        stage_map = {
+            'loaded': '_save_loaded',
+            'cleaned': '_save_cleaned',
+            'chunks': '_save_chunks',
+            'dedup_report': '_save_dedup_report',
+            'embeddings': '_save_embeddings',
+            'retrieval': '_save_retrieval',
+            'evaluation': '_save_evaluation',
+        }
+        
+        if stage in stage_map:
+            setattr(self, stage_map[stage], enabled)
+            logger.debug(f"设置输出阶段 '{stage}' 为: {enabled}")
+        else:
+            logger.warning(f"未知的输出阶段: {stage}")
+    
+    def enable_stage_output(self, stage: str):
+        """启用指定阶段的输出"""
+        self.set_stage_output(stage, True)
+    
+    def disable_stage_output(self, stage: str):
+        """禁用指定阶段的输出"""
+        self.set_stage_output(stage, False)
     
     def _ensure_directories(self):
         """确保输出目录存在"""
@@ -346,7 +391,6 @@ class OutputManager:
     def save_failed_files_report(
         self,
         failed_files: List[Dict[str, Any]],
-        filtered_files: List[Dict[str, Any]],
         filename: Optional[str] = None
     ) -> Optional[Path]:
         """
@@ -354,14 +398,13 @@ class OutputManager:
         
         Args:
             failed_files: 加载失败的文件列表
-            filtered_files: 被过滤的文件列表
             filename: 文件名（不含扩展名）
             
         Returns:
             保存的文件路径，如果不保存则返回 None
         """
         # 失败文件报告总是保存（用于问题排查）
-        if not failed_files and not filtered_files:
+        if not failed_files:
             return None
         
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -374,11 +417,8 @@ class OutputManager:
             'timestamp': datetime.now().isoformat(),
             'summary': {
                 'total_failed': len(failed_files),
-                'total_filtered': len(filtered_files),
-                'total_issues': len(failed_files) + len(filtered_files),
             },
             'failed_files': failed_files,
-            'filtered_files': filtered_files,
         }
         
         try:

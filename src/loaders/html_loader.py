@@ -79,7 +79,10 @@ class HTMLLoader(BaseLoader):
         """使用Unstructured加载HTML"""
         from unstructured.partition.html import partition_html
         
-        elements = partition_html(filename=str(file_path))
+        # 获取语言配置
+        languages = self.config.get('loader.unstructured.languages', ['chi_sim', 'eng'])
+        
+        elements = partition_html(filename=str(file_path), languages=languages)
         
         texts = []
         for element in elements:

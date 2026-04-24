@@ -89,7 +89,6 @@ loader:
 | `loader.parallel.enabled` | bool | true | 是否启用并行加载 |
 | `loader.parallel.max_workers` | int | 4 | 并行加载线程数 |
 | `loader.extract_metadata` | bool | true | 是否提取文档元数据 |
-| `loader.filters.min_file_size` | int | 1024 | 最小文件大小(字节) |
 | `loader.word.max_retries` | int | 3 | Word加载重试次数 |
 | `loader.word.retry_delay` | int | 2 | Word加载重试延迟(秒) |
 | `loader.ppt.max_retries` | int | 3 | PPT加载重试次数 |
@@ -106,6 +105,13 @@ loader:
 | `ocr.conda_env` | string | "OCR" | Conda环境名称 |
 | `ocr.conda_path` | string | "" | Conda可执行文件路径(留空自动查找) |
 | `ocr.progress_callback` | null/function | null | OCR进度回调函数 |
+
+### 任务文件管理配置 (task_file_manager)
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `task_file_manager.task_file` | string | "./cache/task_files.json" | 任务文件表路径 |
+| `loader.filters.min_file_size` | int | 1024 | 最小文件大小(字节)，小于此值的文件会被过滤 |
 
 ### 文本清洗配置 (cleaner)
 
@@ -137,6 +143,34 @@ loader:
 | `chunker.post_process.min_chunk_length` | int | 20 | 最小分块长度 |
 | `chunker.post_process.merge_adjacent_short` | bool | true | 是否合并相邻短块 |
 | `chunker.db_path` | string | "./cache/chunks_db.json" | 分块数据库路径 |
+
+### 编码配置 (encoder)
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `encoder.type` | string | "dense" | 编码器类型：dense(稠密向量)/sparse(稀疏向量)/hybrid(混合) |
+| `encoder.cache_dir` | string | "./cache/encodings" | 编码缓存目录 |
+| `encoder.incremental` | bool | true | 是否启用增量编码 |
+| `encoder.dense.model_name` | string | "BAAI/bge-small-zh-v1.5" | 稠密向量模型名称 |
+| `encoder.dense.model_path` | string/null | null | 本地模型路径（优先使用） |
+| `encoder.dense.device` | string | "auto" | 设备类型：auto/cpu/cuda |
+| `encoder.dense.normalize` | bool | true | 是否归一化向量 |
+| `encoder.dense.batch_size` | int | 32 | 批处理大小 |
+| `encoder.dense.max_seq_length` | int | 512 | 最大序列长度 |
+| `encoder.dense.instruction` | string | "为这个句子生成表示以用于检索相关文章：" | 编码指令 |
+| `encoder.dense.use_instruction` | bool | true | 是否使用编码指令 |
+| `encoder.sparse.bm25.k1` | float | 1.5 | BM25参数k1 |
+| `encoder.sparse.bm25.b` | float | 0.75 | BM25参数b |
+| `encoder.sparse.bm25.max_features` | int | 50000 | BM25最大特征数 |
+| `encoder.sparse.bm25.min_df` | int | 1 | BM25最小文档频率 |
+| `encoder.sparse.bm25.max_df` | float | 0.95 | BM25最大文档频率 |
+| `encoder.sparse.tfidf.max_features` | int | 50000 | TF-IDF最大特征数 |
+| `encoder.sparse.tfidf.min_df` | int | 1 | TF-IDF最小文档频率 |
+| `encoder.sparse.tfidf.max_df` | float | 0.95 | TF-IDF最大文档频率 |
+| `encoder.sparse.tfidf.ngram_range` | list | [1, 2] | TF-IDF n-gram范围 |
+| `encoder.hybrid.dense_weight` | float | 0.7 | 混合编码稠密向量权重 |
+| `encoder.hybrid.sparse_weight` | float | 0.3 | 混合编码稀疏向量权重 |
+| `encoder.hybrid.sparse_type` | string | "bm25" | 稀疏编码类型：bm25/tfidf |
 
 ### 性能配置 (performance)
 
@@ -174,6 +208,10 @@ loader:
 | chunker | `chunk_size` | 分块大小 |
 | chunker | `chunk_overlap` | 分块重叠长度 |
 | chunker | `post_process.min_chunk_length` | 最小分块长度 |
+| encoder | `type` | 编码器类型（dense/sparse/hybrid） |
+| encoder | `dense.model_name` | 稠密向量模型名称 |
+| encoder | `dense.device` | 编码设备（auto/cpu/cuda） |
+| encoder | `dense.batch_size` | 编码批处理大小 |
 | performance | `max_workers` | 最大工作线程数 |
 | performance | `incremental_update.enabled` | 增量更新开关 |
 

@@ -1,30 +1,129 @@
+# ==================== DocRAG 用户配置 ====================
+# 此文件覆盖默认配置，只包含需要修改的参数
+
+# ==================== 路径配置 ====================
 paths:
-  input_dir: F:\doc_rag\data
-  output_dir: outputs
-  models_dir: models
+  input_dir: "F:\\doc_rag\\data"
+  output_dir: "outputs"
+  models_dir: "models"
+  logs_dir: "./logs"
+  cache_dir: "./cache"
+
+# ==================== 日志配置 ====================
 logging:
-  level: INFO           # 文件记录 INFO 及以上
-  console_level: WARNING 
+  level: "INFO"
+  console_level: "WARNING"
   console_output: true
+  format: "structured"
+
+# ==================== 文档加载配置 ====================
 loader:
   parallel:
     enabled: true
     max_workers: 4
+  extract_metadata: true
+  filters:
+    min_file_size: 1024  # 最小文件大小（字节），默认1KB
   ocr:
     enabled: true
+
+# ==================== 文本清洗配置 ====================
 cleaner:
   unstructured:
     enabled: true
   quality_check:
     enabled: true
+    min_length: 10
+    max_length_ratio: 0.1
   parallel:
     enabled: false
+
+# ==================== 文本分块配置 ====================
 chunker:
   chunk_size: 500
   chunk_overlap: 50
+  separators:
+    - "\n\n"  # 段落
+    - "\n"    # 换行
+    - "。"     # 句号
+    - "？"     # 问号
+    - "！"     # 感叹号
+    - "！"     # 感叹号
+    - "；"    # 分号
+    - "，"    # 逗号
+    - " "     # 空格
+    - ""      # 字符
   post_process:
-    min_chunk_length: 100
+    filter_short_chunks: true
+    min_chunk_length: 20
+    merge_adjacent_short: true
+
+# ==================== 去重配置 ====================
+deduper:
+  strategy: "test"
+  duplicate_strategy: "keep_first"
+  test:
+    use_hash: true
+    use_simhash: true
+    simhash_threshold: 3
+  production:
+    use_hash: true
+    use_simhash: true
+    use_embedding: false
+    simhash_threshold: 3
+    embedding_threshold: 0.95
+
+# ==================== 编码配置 ====================
+encoder:
+  type: "dense"
+  cache_dir: "./cache/encodings"
+  incremental: true
+  dense:
+    model_name: "BAAI/bge-small-zh-v1.5"
+    model_path: "models/bge-small-zh-v1.5"  # 使用本地模型路径（优先）
+    device: "auto"  # auto/cpu/cuda
+    normalize: true
+    batch_size: 32
+    max_seq_length: 512
+    instruction: "为这个句子生成表示以用于检索相关文章："
+    use_instruction: true
+
+# ==================== 向量数据库配置 ====================
+vector_store:
+  type: "chroma"
+  chroma:
+    persist_directory: "./chroma_db"
+    collection_name: "doc_rag_collection"
+    hnsw_space: "cosine"
+    hnsw_construction_ef: 128
+    hnsw_search_ef: 64
+    hnsw_M: 16
+
+# ==================== 检索配置 ====================
+retriever:
+  type: "vector"
+  top_k: 5
+  filter:
+    threshold: 0.5
+  rerank:
+    enabled: true
+    model: "BAAI/bge-reranker-base"
+
+# ==================== 输出控制配置 ====================
+output:
+  mode: "production"  # test/production/minimal/custom
+  stages:
+    loaded: true
+    cleaned: true
+    chunks: true
+    dedup_report: true
+    embeddings: true
+    retrieval: true
+    evaluation: true
+
+# ==================== 性能配置 ====================
 performance:
   max_workers: 6
+  parallel_processing: true
   incremental_update:
     enabled: true

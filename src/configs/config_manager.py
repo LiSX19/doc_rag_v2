@@ -101,13 +101,14 @@ class ConfigManager:
         
         return value
     
-    def set(self, key: str, value: Any):
+    def set(self, key: str, value: Any, save: bool = False):
         """
-        设置配置值（同时保存到用户配置文件）
+        设置配置值
         
         Args:
             key: 配置键，支持点号分隔
             value: 配置值
+            save: 是否同时保存到用户配置文件（默认 False，只在内存中修改）
         """
         keys = key.split('.')
         config = self._config
@@ -119,8 +120,9 @@ class ConfigManager:
         
         config[keys[-1]] = value
         
-        # 自动保存到用户配置文件
-        self.save_user_config()
+        # 只有显式指定 save=True 时才保存到用户配置文件
+        if save:
+            self.save_user_config()
     
     def get_all(self) -> Dict[str, Any]:
         """
@@ -133,11 +135,13 @@ class ConfigManager:
     
     def save_user_config(self):
         """保存用户配置到 config.yaml"""
-        # 只保存关键的用户可配置项
+        # 定义关键的用户可配置项
         user_keys = [
             'paths.input_dir',
             'paths.output_dir',
             'paths.models_dir',
+            'paths.logs_dir',
+            'paths.cache_dir',
             'logging.level',
             'logging.console_output',
             'loader.parallel.enabled',
@@ -151,9 +155,21 @@ class ConfigManager:
             'chunker.post_process.min_chunk_length',
             'performance.max_workers',
             'performance.incremental_update.enabled',
+            'output.mode',
+            'output.stages',
         ]
         
-        user_config = {}
+        # 先加载现有的用户配置（保留用户手动添加的配置）
+        existing_config = {}
+        if self.USER_CONFIG_PATH.exists():
+            try:
+                with open(self.USER_CONFIG_PATH, 'r', encoding='utf-8') as f:
+                    existing_config = yaml.safe_load(f) or {}
+            except Exception:
+                existing_config = {}
+        
+        # 更新关键配置项
+        user_config = existing_config.copy()
         for key in user_keys:
             value = self.get(key)
             if value is not None:

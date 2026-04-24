@@ -113,7 +113,10 @@ class PPTLoader(BaseLoader):
         """使用Unstructured加载.pptx"""
         from unstructured.partition.pptx import partition_pptx
 
-        elements = partition_pptx(filename=str(file_path))
+        # 获取语言配置
+        languages = self.config.get('loader.unstructured.languages', ['chi_sim', 'eng'])
+
+        elements = partition_pptx(filename=str(file_path), languages=languages)
 
         texts = []
         slides = []
@@ -161,7 +164,10 @@ class PPTLoader(BaseLoader):
         """使用Unstructured加载.ppt"""
         from unstructured.partition.ppt import partition_ppt
 
-        elements = partition_ppt(filename=str(file_path))
+        # 获取语言配置
+        languages = self.config.get('loader.unstructured.languages', ['chi_sim', 'eng'])
+
+        elements = partition_ppt(filename=str(file_path), languages=languages)
 
         texts = []
         for element in elements:

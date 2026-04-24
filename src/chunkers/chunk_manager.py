@@ -28,7 +28,8 @@ class ChunkRecord:
         start_pos: int = 0,
         end_pos: int = 0,
         metadata: Optional[Dict[str, Any]] = None,
-        created_at: Optional[str] = None
+        created_at: Optional[str] = None,
+        content_hash: Optional[str] = None
     ):
         """
         初始化分块记录
@@ -42,6 +43,7 @@ class ChunkRecord:
             end_pos: 在原文中的结束位置
             metadata: 元数据
             created_at: 创建时间
+            content_hash: 内容哈希值（如果未提供则自动计算）
         """
         self.chunk_id = chunk_id
         self.content = content
@@ -51,6 +53,7 @@ class ChunkRecord:
         self.end_pos = end_pos
         self.metadata = metadata or {}
         self.created_at = created_at or datetime.now().isoformat()
+        self.content_hash = content_hash or self.compute_hash()
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
@@ -63,6 +66,7 @@ class ChunkRecord:
             'end_pos': self.end_pos,
             'metadata': self.metadata,
             'created_at': self.created_at,
+            'content_hash': self.content_hash,
         }
     
     @classmethod
@@ -77,6 +81,7 @@ class ChunkRecord:
             end_pos=data.get('end_pos', 0),
             metadata=data.get('metadata', {}),
             created_at=data.get('created_at'),
+            content_hash=data.get('content_hash'),
         )
     
     def compute_hash(self) -> str:
@@ -298,6 +303,10 @@ class ChunkDatabase:
         """获取所有已记录的文件路径"""
         return set(self.file_records.keys())
     
+    def get_all_chunks(self) -> List[ChunkRecord]:
+        """获取所有分块记录"""
+        return list(self.chunks.values())
+    
     def get_stats(self) -> Dict[str, Any]:
         """获取数据库统计信息"""
         return {
@@ -305,6 +314,35 @@ class ChunkDatabase:
             'total_files': len(self.file_records),
             'db_path': str(self.db_path),
         }
+    
+    def update_chunks(self, chunks: List[ChunkRecord]):
+        """
+        更新分块记录（用于标记重复分块）
+        
+        Args:
+            chunks: 分块记录列表
+        """
+        for chunk in chunks:
+            if chunk.chunk_id in self.chunks:
+                self.chunks[chunk.chunk_id] = chunk
+        self._save()
+    
+    def delete_chunks_by_ids(self, chunk_ids: List[str]):
+        """
+        删除指定ID的分块
+        
+        Args:
+            chunk_ids: 分块ID列表
+        """
+        for chunk_id in chunk_ids:
+            if chunk_id in self.chunks:
+                del self.chunks[chunk_id]
+        
+        # 更新文件记录
+        for file_record in self.file_records.values():
+            file_record.chunk_ids = [cid for cid in file_record.chunk_ids if cid not in chunk_ids]
+        
+        self._save()
 
 
 class ChunkManager:
@@ -431,6 +469,7 @@ class ChunkManager:
                 start_pos=chunk.start_pos,
                 end_pos=chunk.end_pos,
                 metadata=chunk.metadata,
+                content_hash=self.compute_content_hash(chunk.content),
             )
             
             chunk_records.append(record)

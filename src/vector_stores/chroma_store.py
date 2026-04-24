@@ -146,14 +146,31 @@ class ChromaStore(BaseVectorStore):
         # 解析结果
         search_results = []
         for i in range(len(results['ids'][0])):
+            # 获取距离并转换为相似度分数
+            distance = results['distances'][0][i] if 'distances' in results else 0.0
+
+            # 根据距离度量类型转换分数
+            if self.hnsw_space == 'cosine':
+                # cosine 距离范围是 [0, 2]，转换为相似度 [1, 0]
+                similarity = 1 - distance / 2
+            elif self.hnsw_space == 'l2':
+                # L2 距离，使用负指数转换为相似度
+                similarity = np.exp(-distance)
+            else:
+                # 内积 (ip)，直接使用
+                similarity = distance
+
             result = SearchResult(
                 id=results['ids'][0][i],
                 content=results['documents'][0][i],
-                score=results['distances'][0][i] if 'distances' in results else 0.0,
+                score=float(similarity),
                 metadata=results['metadatas'][0][i] if 'metadatas' in results else {}
             )
             search_results.append(result)
-        
+
+        # 按相似度降序排序
+        search_results.sort(key=lambda x: x.score, reverse=True)
+
         return search_results
     
     def delete(self, ids: List[str]):
@@ -167,6 +184,21 @@ class ChromaStore(BaseVectorStore):
             self.initialize()
         
         self.collection.delete(ids=ids)
+    
+    def get_existing_ids(self) -> List[str]:
+        """
+        获取向量数据库中所有已存储的文档ID
+        
+        Returns:
+            已存储的ID列表
+        """
+        if not self.is_initialized:
+            self.initialize()
+        try:
+            result = self.collection.get()
+            return result.get('ids', []) if result else []
+        except Exception:
+            return []
     
     def get_stats(self) -> Dict[str, Any]:
         """

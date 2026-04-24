@@ -19,31 +19,64 @@ from .base import BaseCleaner
 logger = get_logger(__name__)
 
 # 尝试导入Unstructured的清洗功能
-try:
-    from unstructured.cleaners.core import (
-        clean_bullets,
-        clean_extra_whitespace,
-        clean_non_ascii_chars,
-        clean_ordered_bullets,
-        clean_postfix,
-        clean_prefix,
-        group_broken_paragraphs,
-        remove_punctuation,
-    )
-    from unstructured.cleaners.translate import translate_text
-    # OCR专用清洗功能
-    from unstructured.cleaners.ocr import (
-        clean_ordered_bullets as ocr_clean_ordered_bullets,
-        clean_ligatures,
-        clean_non_ascii_chars as ocr_clean_non_ascii_chars,
-        replace_unicode_quotes,
-    )
-    UNSTRUCTURED_AVAILABLE = True
-    UNSTRUCTURED_OCR_AVAILABLE = True
-except ImportError:
-    UNSTRUCTURED_AVAILABLE = False
-    UNSTRUCTURED_OCR_AVAILABLE = False
-    logger.warning("Unstructured库未安装，将使用基础清洗功能")
+def _check_unstructured_available():
+    """检查Unstructured库是否可用"""
+    # 检测核心功能
+    try:
+        from unstructured.cleaners.core import (
+            clean_bullets,
+            clean_extra_whitespace,
+            clean_non_ascii_chars,
+            clean_ordered_bullets,
+            clean_postfix,
+            clean_prefix,
+            group_broken_paragraphs,
+            remove_punctuation,
+        )
+        from unstructured.cleaners.translate import translate_text
+        core_available = True
+    except ImportError:
+        core_available = False
+    
+    # 检测OCR功能
+    ocr_available = False
+    if core_available:
+        try:
+            # OCR专用清洗功能
+            from unstructured.cleaners.ocr import (
+                clean_ordered_bullets as ocr_clean_ordered_bullets,
+                clean_ligatures,
+                clean_non_ascii_chars as ocr_clean_non_ascii_chars,
+                replace_unicode_quotes,
+            )
+            ocr_available = True
+        except ImportError:
+            ocr_available = False
+    
+    return core_available, ocr_available
+
+# 全局变量，延迟检测
+_UNSTRUCTURED_CHECKED = False
+UNSTRUCTURED_AVAILABLE = False
+UNSTRUCTURED_OCR_AVAILABLE = False
+
+def _ensure_unstructured_checked(force=False):
+    """确保已检测Unstructured可用性
+    
+    Args:
+        force: 是否强制重新检测
+    """
+    global _UNSTRUCTURED_CHECKED, UNSTRUCTURED_AVAILABLE, UNSTRUCTURED_OCR_AVAILABLE
+    if not _UNSTRUCTURED_CHECKED or force:
+        UNSTRUCTURED_AVAILABLE, UNSTRUCTURED_OCR_AVAILABLE = _check_unstructured_available()
+        _UNSTRUCTURED_CHECKED = True
+        if not UNSTRUCTURED_AVAILABLE:
+            logger.warning("Unstructured库未安装，将使用基础清洗功能")
+        else:
+            if UNSTRUCTURED_OCR_AVAILABLE:
+                logger.info("Unstructured库已检测到，将使用高级清洗功能（包括OCR清洗）")
+            else:
+                logger.info("Unstructured核心库已检测到，将使用高级清洗功能（OCR清洗功能不可用）")
 
 
 @dataclass
@@ -84,6 +117,9 @@ class TextCleaner(BaseCleaner):
                 - parallel: 并行处理配置
         """
         super().__init__(config)
+        
+        # 延迟检测Unstructured可用性
+        _ensure_unstructured_checked()
         
         # 读取 cleaner 配置（适配 configs.yaml 结构）
         cleaner_config = self.config.get('cleaner', self.config)
@@ -391,6 +427,16 @@ class TextCleaner(BaseCleaner):
     def _clean_structure_unstructured(self, text: str) -> str:
         """使用Unstructured进行结构清洗"""
         try:
+            # 导入Unstructured清洗函数
+            from unstructured.cleaners.core import (
+                clean_bullets,
+                clean_extra_whitespace,
+                clean_non_ascii_chars,
+                clean_ordered_bullets,
+                group_broken_paragraphs,
+                remove_punctuation,
+            )
+            
             opts = self.unstructured_options
             
             # 清理项目符号
@@ -480,6 +526,12 @@ class TextCleaner(BaseCleaner):
         # 首先应用Unstructured的OCR清洗（如果可用）
         if UNSTRUCTURED_OCR_AVAILABLE:
             try:
+                # 导入OCR清洗函数
+                from unstructured.cleaners.ocr import (
+                    clean_ligatures,
+                    replace_unicode_quotes,
+                    clean_ordered_bullets as ocr_clean_ordered_bullets,
+                )
                 # 清理连字（ligatures）
                 text = clean_ligatures(text)
                 # 替换Unicode引号

@@ -95,7 +95,10 @@ class ExcelLoader(BaseLoader):
         """使用Unstructured加载.xlsx"""
         from unstructured.partition.xlsx import partition_xlsx
         
-        elements = partition_xlsx(filename=str(file_path))
+        # 获取语言配置
+        languages = self.config.get('loader.unstructured.languages', ['chi_sim', 'eng'])
+        
+        elements = partition_xlsx(filename=str(file_path), languages=languages)
         
         texts = []
         for element in elements:
@@ -118,7 +121,10 @@ class ExcelLoader(BaseLoader):
         """使用Unstructured加载.xls"""
         from unstructured.partition.xls import partition_xls
         
-        elements = partition_xls(filename=str(file_path))
+        # 获取语言配置
+        languages = self.config.get('loader.unstructured.languages', ['chi_sim', 'eng'])
+        
+        elements = partition_xls(filename=str(file_path), languages=languages)
         
         texts = []
         for element in elements:

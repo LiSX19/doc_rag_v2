@@ -6,32 +6,54 @@
 
 ## 配置方式
 
-在 `configs.yaml` 中配置：
+在 `config.yaml` 中配置（用户配置）或在 `default_config.yaml` 中查看默认配置：
 
 ```yaml
+# config.yaml (用户配置) 或 default_config.yaml (默认配置)
 output:
-  # 运行模式: test(测试) / production(生产)
+  # 输出模式: test(测试模式) / production(生产模式) / minimal(最小输出) / custom(自定义)
   mode: "test"
   
-  # 测试模式：输出所有中间结果
-  test:
-    save_loaded: true           # 保存加载的原始文档
-    save_cleaned: true          # 保存清洗后的文本
-    save_chunks: true           # 保存分块结果
-    save_dedup_report: true     # 保存去重报告
-    save_embeddings: true       # 保存Embedding向量
-    save_retrieval: true        # 保存检索结果
-    save_evaluation: true       # 保存评估报告
+  # 各阶段中间产物输出控制（mode为custom时生效）
+  # 设置为 true 则输出该阶段产物，false 则不输出
+  stages:
+    loaded: false      # 加载阶段：输出原始文本
+    cleaned: false     # 清洗阶段：输出清洗后的文本
+    chunks: false      # 分块阶段：输出分块结果
+    dedup_report: true  # 去重阶段：输出去重报告
+    embeddings: true   # 向量化阶段：输出编码向量
+    retrieval: true    # 检索阶段：输出检索结果
+    evaluation: true   # 评估阶段：输出评估报告
   
-  # 生产模式：只输出必要结果
+  # 测试模式配置（输出所有中间产物）
+  test:
+    save_loaded: true
+    save_cleaned: true
+    save_chunks: true
+    save_dedup_report: true
+    save_embeddings: true
+    save_retrieval: true
+    save_evaluation: true
+  
+  # 生产模式配置（只输出必要产物）
   production:
-    save_loaded: false          # 不保存原始文档（已存入向量库）
-    save_cleaned: false         # 不保存清洗后文本
-    save_chunks: false          # 不保存分块结果（已存入向量库）
-    save_dedup_report: true     # 保存去重统计（用于监控）
-    save_embeddings: false      # 不保存向量文件（已存入向量库）
-    save_retrieval: true        # 保存检索结果
-    save_evaluation: true       # 保存评估报告
+    save_loaded: false
+    save_cleaned: false
+    save_chunks: false
+    save_dedup_report: true
+    save_embeddings: false
+    save_retrieval: false
+    save_evaluation: true
+  
+  # 最小输出模式（几乎不输出中间产物）
+  minimal:
+    save_loaded: false
+    save_cleaned: false
+    save_chunks: false
+    save_dedup_report: false
+    save_embeddings: false
+    save_retrieval: false
+    save_evaluation: false
 ```
 
 ## 输出目录结构
@@ -41,7 +63,7 @@ outputs/
 ├── loaded/          # 加载的原始文档 (.txt)
 ├── cleaned/         # 清洗后的文本 (.cleaned.txt)
 ├── chunks/          # 分块结果 (.chunks.json)
-├── embeddings/      # Embedding向量 (.npy, .json)
+├── embeddings/      # 编码向量 (.npy, .json)
 ├── retrieval/       # 检索结果 (.json)
 └── evaluation/      # 评估报告 (.json)
 ```
@@ -58,7 +80,7 @@ from src.cleaners import TextCleaner
 from src.chunkers import RecursiveChunker
 
 # 加载配置
-config = {...}  # 从 configs.yaml 读取
+config = {...}  # 从 config.yaml 或 default_config.yaml 读取
 
 # 初始化模块（自动根据配置决定是否输出）
 loader = DocumentLoader(config)
@@ -107,7 +129,7 @@ config['output']['mode'] = 'production'
 | **Cleaner** | `clean()` | `clean(filename=...)` | `cleaned/` |
 | **Chunker** | `split()` | `split_and_save()` | `chunks/` |
 | **Deduper** | `deduplicate()` | `deduplicate(filename=...)` | 自动保存报告 |
-| **Embedder** | `embed()` | `embed_and_save()` | `embeddings/` |
+| **Encoder** | `encode()` | `encode_and_save()` | `embeddings/` |
 | **Retriever** | `retrieve()` | `retrieve_and_save()` | `retrieval/` |
 | **Evaluator** | `evaluate()` | `evaluate_and_save()` | `evaluation/` |
 
@@ -166,7 +188,7 @@ config['output']['mode'] = 'production'
 }
 ```
 
-### 5. Embedding向量 (`embeddings/*.npy`, `*.json`)
+### 5. 编码向量 (`embeddings/*.npy`, `*.json`)
 - `.npy`: numpy 数组文件
 - `.json`: 元数据文件
 
@@ -244,15 +266,37 @@ print(summary)
 
 ### 自动记录
 
-Loader 模块会自动记录以下类型的文件问题：
+系统会自动记录以下类型的文件问题：
 
 | 类型 | 原因 | 记录位置 |
 |------|------|---------|
-| **filtered_files** | 文件大小不足（< 1KB） | `filtered_files` 列表 |
-| **failed_files** | 大小检查出错 | `failed_files` 列表 |
-| **failed_files** | 文档加载失败 | `failed_files` 列表 |
+| **filtered** | 文件大小不足（< 1KB） | `task_files.json` 中的 `filtered` 状态 |
+| **error** | 文档处理失败 | `task_files.json` 中的 `error` 状态 |
+| **failed_files** | 文档加载失败 | `failed_files` 列表 (DocumentLoader) |
 
 ### 获取失败文件
+
+```python
+from src.utils.task_file_manager import TaskFileManager, FileStatus
+
+# 获取任务文件管理器
+task_manager = TaskFileManager(config)
+
+# 获取统计信息
+stats = task_manager.get_statistics()
+print(f"处理完成: {stats['completed']} 个")
+print(f"处理失败: {stats['error']} 个")
+print(f"被过滤: {stats['filtered']} 个")
+print(f"被跳过: {stats['skipped']} 个")
+
+# 查看被过滤的文件
+for file_key, file_info in task_manager.task_files.items():
+    if file_info['status'] == FileStatus.FILTERED.value:
+        print(f"文件: {file_info['filename']}")
+        print(f"原因: {file_info['error']}")
+```
+
+### 从 DocumentLoader 获取失败文件
 
 ```python
 from src.loaders import DocumentLoader
@@ -262,12 +306,10 @@ loader = DocumentLoader(config)
 # 批量加载文档
 docs = loader.load_documents(file_paths)
 
-# 获取失败的文件
+# 获取加载失败的文件
 failed = loader.get_failed_files()
-filtered = loader.get_filtered_files()
 
 print(f"加载失败: {len(failed)} 个")
-print(f"被过滤: {len(filtered)} 个")
 
 # 查看失败详情
 for f in failed:
@@ -285,8 +327,7 @@ report_path = loader.save_failed_files_report()
 
 # 方法2: 通过 OutputManager
 output_manager.save_failed_files_report(
-    failed_files=loader.get_failed_files(),
-    filtered_files=loader.get_filtered_files()
+    failed_files=loader.get_failed_files()
 )
 ```
 
@@ -296,9 +337,7 @@ output_manager.save_failed_files_report(
 {
   "timestamp": "2024-01-15T12:00:00",
   "summary": {
-    "total_failed": 5,
-    "total_filtered": 10,
-    "total_issues": 15
+    "total_failed": 5
   },
   "failed_files": [
     {
@@ -309,19 +348,42 @@ output_manager.save_failed_files_report(
       "error_type": "ValueError",
       "timestamp": "2024-01-15T12:00:00"
     }
-  ],
-  "filtered_files": [
-    {
-      "file_path": "F:/data/small.txt",
-      "filename": "small.txt",
-      "reason": "size_too_small",
-      "file_size": 100,
-      "min_size": 1024,
-      "timestamp": "2024-01-15T12:00:00"
-    }
   ]
 }
 ```
+
+### 任务文件表格式
+
+任务文件表 (`task_files.json`) 包含所有文件的处理状态：
+
+```json
+{
+  "batch_id": "F:\\doc_rag\\data",
+  "created_at": "2024-01-15T12:00:00",
+  "files": {
+    "F:\\doc_rag\\data\\txt\\small.txt": {
+      "path": "F:\\doc_rag\\data\\txt\\small.txt",
+      "filename": "small.txt",
+      "extension": ".txt",
+      "hash": "fa86d2175504c21db50714895dca5540",
+      "status": "filtered",
+      "priority": 1,
+      "created_at": "2024-01-15T12:00:00",
+      "updated_at": "2024-01-15T12:00:00",
+      "error": "文件大小不足: small.txt, 大小: 33 字节 (0.03 KB), 最小要求: 1024 字节 (1.0 KB)",
+      "retry_count": 0
+    }
+  }
+}
+```
+
+**状态说明：**
+- `pending`: 等待处理
+- `processing`: 正在处理
+- `completed`: 处理完成
+- `error`: 处理出错
+- `skipped`: 被跳过（未修改）
+- `filtered`: 被过滤（大小不足等）
 
 ### 清空记录
 

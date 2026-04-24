@@ -20,7 +20,7 @@ Loader 模块是文档 RAG 系统的文档加载与解析组件，负责：
 - 提供统一的文档加载接口
 - 实现智能降级策略（优先现代库，降级到 COM/子进程）
 - 支持并行处理和进度监控
-- 实现文件大小过滤和错误重试机制
+- 实现错误重试机制
 
 ### 支持的文件格式
 
@@ -41,7 +41,7 @@ Loader 模块是文档 RAG 系统的文档加载与解析组件，负责：
 | 文本 | CSV | `.csv` | TextLoader |
 | 文本 | JSON | `.json` | TextLoader |
 | 文本 | XML | `.xml` | TextLoader |
-| 文本 | RTF | `.rtf` | TextLoader |
+| 文本 | RTF | `.rtf` | pywin32 → Unstructured → 原始读取 |
 | 网页 | HTML | `.html`, `.htm` | HTMLLoader |
 
 ---
@@ -62,6 +62,7 @@ src/loaders/
 ├── caj_loader.py            # CAJ 加载器
 ├── html_loader.py           # HTML 加载器
 ├── text_loader.py           # 文本加载器
+├── rtf_loader.py            # RTF 加载器（pywin32）
 │
 └── ocr_processor.py         # OCR 子进程脚本
 ```
@@ -72,7 +73,6 @@ src/loaders/
 ┌─────────────────────────────────────────────────────────────┐
 │                    DocumentLoader (统一入口)                  │
 │                   - 并行处理                                   │
-│                   - 文件过滤                                   │
 │                   - 进度回调                                   │
 └───────────────────────┬─────────────────────────────────────┘
                         │
@@ -80,7 +80,7 @@ src/loaders/
         ▼               ▼               ▼
 ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
 │ LoaderFactory │ │ File Filter  │ │ Progress     │
-│ (获取加载器)   │ │ (大小过滤)   │ │ (进度监控)   │
+│ (获取加载器)   │ │ (类型检查)   │ │ (进度监控)   │
 └──────┬────────┘ └──────────────┘ └──────────────┘
        │
        ▼
@@ -91,9 +91,9 @@ src/loaders/
 │ (Unstruct   │ (Unstruct   │ (Unstruct   │ (Unstruct         │
 │  → OCR)     │  → pywin32) │  → openpyxl)│  → pywin32)       │
 ├─────────────┼─────────────┼─────────────┼───────────────────┤
-│ CAJLoader   │ HTMLLoader  │ TextLoader  │                   │
-│ (caj2pdf    │ (Beautiful  │ (直接读取)  │                   │
-│  → PyMuPDF) │  Soup)      │             │                   │
+│ CAJLoader   │ HTMLLoader  │ TextLoader  │ RTFLoader         │
+│ (caj2pdf    │ (Beautiful  │ (直接读取)  │ (pywin32         │
+│  → PyMuPDF) │  Soup)      │             │  → Unstructured)  │
 └─────────────┴─────────────┴─────────────┴───────────────────┘
 ```
 
@@ -139,18 +139,19 @@ class LoaderFactory:
 
 ### 3. DocumentLoader (document_loader.py)
 
-统一文档加载入口，支持并行处理和文件过滤。
+统一文档加载入口，支持并行处理、文件过滤、增量更新和失败记录。
 
 ```python
 class DocumentLoader:
     def __init__(self, config: Optional[Dict[str, Any]] = None)
     
-    def load_document(self, file_path) -> Dict[str, Any]
+    def load_document(self, file_path: Union[str, Path]) -> Dict[str, Any]
     
     def load_documents(
         self,
         file_paths: List[Union[str, Path]],
-        progress_callback: Optional[Callable[[int, int, str], None]] = None
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        incremental: bool = True
     ) -> List[Dict[str, Any]]
     
     def load_directory(
@@ -160,6 +161,16 @@ class DocumentLoader:
         recursive: bool = True,
         file_limit: Optional[int] = None
     ) -> List[Dict[str, Any]]
+    
+    # 失败文件管理
+    def get_failed_files(self) -> List[Dict[str, Any]]
+    def save_failed_files_report(self, output_path: Optional[Union[str, Path]] = None) -> Path
+    def clear_failed_records(self)
+    
+    # 增量更新管理
+    def set_incremental_mode(self, enabled: bool)
+    def clear_incremental_records(self)
+    def get_incremental_stats(self) -> Dict[str, Any]
 ```
 
 ---
@@ -256,6 +267,32 @@ CAJ 文件
     [清理临时文件]
 ```
 
+### RTF 解析流程 (rtf_loader.py)
+
+```
+RTF 文件
+    │
+    ├─> 1. pywin32（Windows）
+    │      ├─ Word COM 接口打开
+    │      ├─ 带重试机制（默认3次）
+    │      ├─ 提取文本和元数据
+    │      └─ 成功 → 返回结果
+    │      └─ 失败 → 继续
+    │
+    ├─> 2. Unstructured
+    │      └─ 成功 → 返回结果
+    │      └─ 失败 → 继续
+    │
+    └─> 3. 原始读取
+           └─ 直接读取文件内容
+```
+
+**关键特性：**
+- 使用 Word COM 接口处理RTF（与.doc/.ppt相同）
+- 支持重试机制：RPC错误自动重试
+- 资源释放：`finally` 块确保 COM 对象释放
+- 配置参数：`max_retries`, `retry_delay`
+
 ---
 
 ## 输入与输出
@@ -275,9 +312,6 @@ config = {
             'max_workers': 4,       # 最大工作进程数
         },
         'extract_metadata': True,   # 是否提取元数据
-        'filters': {
-            'min_file_size': 1024,  # 最小文件大小（字节）
-        },
         'word': {
             'max_retries': 3,       # Word pywin32 重试次数
             'retry_delay': 2,       # 重试间隔（秒）
@@ -336,20 +370,7 @@ config = {
 
 ## 优化处理
 
-### 1. 文件大小过滤
-
-```python
-# 默认过滤小于 1KB 的文件
-loader = DocumentLoader({
-    'loader': {
-        'filters': {
-            'min_file_size': 1024  # 字节
-        }
-    }
-})
-```
-
-### 2. 并行处理
+### 1. 并行处理
 
 ```python
 # 启用并行加载（多进程）
@@ -370,11 +391,12 @@ loader = DocumentLoader({
 - **Word**: Unstructured → python-docx/pywin32
 - **Excel**: Unstructured → openpyxl/xlrd
 - **PPT**: Unstructured → python-pptx/pywin32
+- **RTF**: pywin32 → Unstructured → 原始读取
 - **CAJ**: caj2pdf → PDFLoader → Unstructured/OCR
 
 ### 4. 错误重试
 
-pywin32 调用（Word/PPT）支持自动重试：
+pywin32 调用（Word/PPT/RTF）支持自动重试：
 - 检测 RPC 错误（-2147023170）
 - 默认重试 3 次，间隔 2 秒
 - 每次重试前强制垃圾回收
@@ -418,7 +440,7 @@ config = {
 ### 完整配置示例
 
 ```yaml
-# configs.yaml
+# config.yaml (用户配置) 或 default_config.yaml (默认配置)
 loader:
   parallel:
     enabled: true
@@ -426,14 +448,15 @@ loader:
   
   extract_metadata: true
   
-  filters:
-    min_file_size: 1024  # 1KB
-  
   word:
     max_retries: 3
     retry_delay: 2
   
   ppt:
+    max_retries: 3
+    retry_delay: 2
+  
+  rtf:
     max_retries: 3
     retry_delay: 2
 
@@ -498,7 +521,6 @@ results = loader.load_documents(file_paths, progress_callback=on_progress)
 config = {
     'loader': {
         'parallel': {'enabled': True, 'max_workers': 8},
-        'filters': {'min_file_size': 2048},  # 2KB
         'word': {'max_retries': 5}
     },
     'ocr': {
@@ -606,7 +628,7 @@ def load(self, file_path):
 
 ## 注意事项
 
-1. **Windows 依赖**: .doc, .ppt, .wps 需要 Windows + pywin32
+1. **Windows 依赖**: .doc, .ppt, .wps, .rtf 需要 Windows + pywin32
 2. **OCR 环境**: PDF OCR 需要独立的 OCR conda 环境
 3. **caj2pdf**: CAJ 需要本地克隆 caj2pdf 工具到 `src/loaders/caj2pdf`
 4. **内存管理**: 大型 PDF OCR 会占用较多内存

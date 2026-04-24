@@ -108,7 +108,16 @@ class BaseVectorStore(ABC):
             ids: 文档ID列表
         """
         pass
-    
+
+    def get_existing_ids(self) -> List[str]:
+        """
+        获取向量数据库中所有已存储的文档ID
+
+        Returns:
+            已存储的ID列表（默认返回空列表）
+        """
+        return []
+
     @abstractmethod
     def get_stats(self) -> Dict[str, Any]:
         """

@@ -12,11 +12,16 @@ import subprocess
 import tempfile
 import time
 import threading
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, Callable
 
 from .base import BaseLoader
 from ..utils.logger import get_logger
+
+# 过滤PDF处理相关的非关键警告
+warnings.filterwarnings('ignore', message='.*stroke color.*')
+warnings.filterwarnings('ignore', message='.*non-stroke color.*')
 
 logger = get_logger(__name__)
 
@@ -156,11 +161,15 @@ class PDFLoader(BaseLoader):
         """使用Unstructured加载PDF"""
         from unstructured.partition.pdf import partition_pdf
 
+        # 获取语言配置，默认中文和英文
+        languages = self.config.get('loader.unstructured.languages', ['chi_sim', 'eng'])
+
         # 首先尝试fast模式（纯文本，不需要OCR）
         try:
             elements = partition_pdf(
                 filename=str(file_path),
                 strategy="fast",
+                languages=languages,
             )
         except Exception as e:
             # fast模式失败，尝试hi_res模式
@@ -169,6 +178,7 @@ class PDFLoader(BaseLoader):
                 strategy="hi_res",
                 extract_images_in_pdf=False,
                 infer_table_structure=True,
+                languages=languages,
             )
 
         # 提取文本
@@ -250,20 +260,14 @@ class PDFLoader(BaseLoader):
                         if self.ocr_progress_callback:
                             self.ocr_progress_callback(current, total, message)
 
-                        # 显示进度条
-                        if total > 0:
-                            bar_length = 20
-                            filled = int(bar_length * current / total)
-                            bar = '█' * filled + '░' * (bar_length - filled)
-                            print(f"\r[OCR] [{bar}] {percentage:5.1f}% | {message} | {file_name[:30]:<30}", end='', flush=True)
+                        # 记录进度到日志（避免干扰主程序进度条）
+                        if total > 0 and current % 5 == 0:  # 每5%记录一次，避免日志过多
+                            logger.debug(f"[OCR进度] {percentage:.1f}% | {message} | {file_name}")
 
             except:
                 pass
 
             time.sleep(0.5)  # 每0.5秒检查一次
-
-        # 结束进度条
-        print()
 
     def _load_with_ocr_subprocess(self, file_path: Path) -> Dict[str, Any]:
         """
@@ -319,35 +323,56 @@ class PDFLoader(BaseLoader):
             monitor_thread.daemon = True
             monitor_thread.start()
 
-            # 构建命令参数
-            cmd_args = [
-                "run",
-                "-n", str(self.ocr_conda_env),
-                "python",
-                str(processor_path),
-                str(file_path),
-                str(output_path),
-                str(progress_path),
-                str(max_workers),
-            ]
-            
-            # 检查conda路径是否有效
-            if not conda_path or conda_path == "conda":
-                # 尝试使用conda命令（假设在PATH中）
-                conda_path = "conda"
-                logger.warning("未找到conda可执行文件路径，尝试使用'conda'命令")
-            
-            # Windows上使用shell=True和字符串命令
+            # 构建命令 - 直接使用OCR环境的Python解释器，避免conda run的输出干扰
             if sys.platform == 'win32':
-                # 如果conda_path包含空格，需要引号包裹
-                if ' ' in conda_path:
-                    conda_cmd = f'"{conda_path}"'
+                # Windows: 直接使用conda envs目录下的python.exe
+                # 从conda路径推导环境路径
+                if conda_path and conda_path != "conda":
+                    # conda.exe 在 Scripts 目录下，环境在 envs 目录下
+                    conda_base = os.path.dirname(os.path.dirname(conda_path))
+                    ocr_python = os.path.join(conda_base, "envs", self.ocr_conda_env, "python.exe")
                 else:
-                    conda_cmd = conda_path
-                cmd = conda_cmd + ' ' + ' '.join(f'"{arg}"' for arg in cmd_args)
-                use_shell = True
+                    # 使用默认路径
+                    ocr_python = f"C:\\ProgramData\\miniconda3\\envs\\{self.ocr_conda_env}\\python.exe"
+                
+                # 检查Python解释器是否存在
+                if not os.path.exists(ocr_python):
+                    logger.warning(f"未找到OCR环境Python: {ocr_python}，尝试使用conda run")
+                    # 回退到conda run
+                    cmd = [
+                        conda_path if conda_path else "conda", "run",
+                        "-n", str(self.ocr_conda_env),
+                        "python",
+                        str(processor_path),
+                        str(file_path),
+                        str(output_path),
+                        str(progress_path),
+                        str(max_workers),
+                    ]
+                    use_shell = False
+                else:
+                    # 使用直接路径
+                    cmd = [
+                        ocr_python,
+                        str(processor_path),
+                        str(file_path),
+                        str(output_path),
+                        str(progress_path),
+                        str(max_workers),
+                    ]
+                    use_shell = False
             else:
-                cmd = [conda_path] + cmd_args
+                # Linux/Mac: 使用conda run
+                cmd = [
+                    conda_path if conda_path else "conda", "run",
+                    "-n", str(self.ocr_conda_env),
+                    "python",
+                    str(processor_path),
+                    str(file_path),
+                    str(output_path),
+                    str(progress_path),
+                    str(max_workers),
+                ]
                 use_shell = False
             
             logger.info(f"OCR命令: {cmd}")

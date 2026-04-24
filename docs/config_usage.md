@@ -15,7 +15,7 @@ loader:           # 文档加载配置
 cleaner:          # 文本清洗配置
 chunker:          # 文本分块配置
 deduper:          # 去重配置
-embedder:         # Embedding配置
+encoder:          # 编码配置（原Embedding配置）
 vector_store:     # 向量数据库配置
 retriever:        # 检索配置
 evaluator:        # 评估配置
@@ -55,11 +55,12 @@ specific_config = module_config.get('key', default_value)
 
 | 模块 | 配置路径 | 关键配置项 |
 |------|---------|-----------|
-| **Loader** | `loader.*`, `ocr.*`, `paths.*` | `parallel.enabled`, `filters.min_file_size`, `ocr.enabled` |
+| **Loader** | `loader.*`, `ocr.*`, `paths.*` | `parallel.enabled`, `ocr.enabled` |
+| **TaskFileManager** | `task_file_manager.*`, `loader.filters.*` | `task_file`, `min_file_size` |
 | **Cleaner** | `cleaner.*` | `pipeline`, `custom_rules_file` |
 | **Chunker** | `chunker.*` | `chunk_size`, `chunk_overlap`, `separators` |
 | **Deduper** | `deduper.*` | `strategy`, `test.*`/`production.*` |
-| **Embedder** | `embedder.*` | `model.name`, `batch_size`, `cache.enabled` |
+| **Encoder** | `encoder.*` | `model.name`, `batch_size`, `cache.enabled` |
 | **VectorStore** | `vector_store.*` | `chroma.*` |
 | **Retriever** | `retriever.*` | `top_k`, `rerank.enabled`, `filter.threshold` |
 | **Evaluator** | `evaluator.*` | `ragas.metrics` |
@@ -75,7 +76,7 @@ from src.loaders import DocumentLoader
 from src.cleaners import TextCleaner
 from src.chunkers import RecursiveChunker
 from src.dedupers import Deduper
-from src.embedders import BGEEmbedder
+from src.encoders import BGEEncoder
 from src.vector_stores import ChromaStore
 from src.retrievers import VectorRetriever
 
@@ -105,8 +106,8 @@ chunker = RecursiveChunker(config)
 # Deduper - 自动读取 deduper.*
 deduper = Deduper(config)
 
-# Embedder - 自动读取 embedder.*
-embedder = BGEEmbedder(config)
+# Encoder - 自动读取 encoder.*
+encoder = BGEEncoder(config)
 
 # VectorStore - 自动读取 vector_store.*
 vector_store = ChromaStore(config)
@@ -129,8 +130,8 @@ chunks = chunker.chunk_batch(cleaned_docs)
 # 去重
 dedup_result = deduper.deduplicate(chunks)
 
-# 嵌入
-embeddings = embedder.embed_batch([c.text for c in dedup_result.unique_chunks])
+# 编码
+embeddings = encoder.encode_batch([c.text for c in dedup_result.unique_chunks])
 
 # 存储
 vector_store.add(
@@ -221,7 +222,7 @@ module_name:
 logging:
   level: "DEBUG"
 
-embedder:
+encoder:
   model:
     device: "cpu"  # 开发环境使用CPU
 ```
@@ -233,7 +234,7 @@ embedder:
 logging:
   level: "WARNING"
 
-embedder:
+encoder:
   model:
     device: "cuda"  # 生产环境使用GPU
 
@@ -263,7 +264,7 @@ class ConfigValidator:
         required_keys = [
             'paths.input_dir',
             'paths.output_dir',
-            'embedder.model.name',
+            'encoder.model.name',
             'vector_store.chroma.persist_directory',
         ]
         

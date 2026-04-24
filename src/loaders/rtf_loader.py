@@ -184,19 +184,15 @@ class RTFLoader(BaseLoader):
             if doc:
                 try:
                     doc.Close(SaveChanges=False)
-                except Exception as e:
-                    print(f"[RTFLoader] 关闭文档时出错: {e}")
-                finally:
-                    doc = None
+                except:
+                    pass
 
             # 确保退出Word应用
             if word:
                 try:
                     word.Quit()
-                except Exception as e:
-                    print(f"[RTFLoader] 退出Word时出错: {e}")
-                finally:
-                    word = None
+                except:
+                    pass
 
             # 强制垃圾回收，释放COM对象
             gc.collect()
@@ -205,7 +201,10 @@ class RTFLoader(BaseLoader):
         """使用Unstructured加载RTF"""
         from unstructured.partition.text import partition_text
 
-        elements = partition_text(filename=str(file_path))
+        # 获取语言配置
+        languages = self.config.get('loader.unstructured.languages', ['chi_sim', 'eng'])
+
+        elements = partition_text(filename=str(file_path), languages=languages)
 
         texts = []
         for element in elements:

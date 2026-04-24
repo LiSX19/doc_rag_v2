@@ -4,7 +4,7 @@
 
 from typing import Any, Dict, List, Optional
 
-from src.embedders.base import BaseEmbedder
+from src.encoders.base import BaseEncoder
 from src.utils import OutputManager, get_logger
 from src.vector_stores.base import BaseVectorStore, SearchResult
 
@@ -18,7 +18,7 @@ class VectorRetriever(BaseRetriever):
     
     def __init__(
         self,
-        embedder: BaseEmbedder,
+        embedder: BaseEncoder,
         vector_store: BaseVectorStore,
         config: Optional[Dict[str, Any]] = None
     ):
@@ -26,7 +26,7 @@ class VectorRetriever(BaseRetriever):
         初始化向量检索器
         
         Args:
-            embedder: Embedding模型
+            embedder: 编码器
             vector_store: 向量数据库
             config: 配置字典，包含：
                 - top_k: 默认返回结果数量
@@ -46,6 +46,7 @@ class VectorRetriever(BaseRetriever):
         self.threshold = retriever_config.get('filter', {}).get('threshold', 0.5)
         self.use_rerank = retriever_config.get('rerank', {}).get('enabled', False)
         self.rerank_model = retriever_config.get('rerank', {}).get('model', 'BAAI/bge-reranker-base')
+        self._reranker_model = None  # 延迟加载重排序模型
         
         # 输出管理器
         self.output_manager = OutputManager(config)
@@ -123,17 +124,25 @@ class VectorRetriever(BaseRetriever):
         return results
     
     def _rerank(self, query: str, results: List[SearchResult]) -> List[SearchResult]:
-        """
-        重排序
-        
-        Args:
-            query: 查询文本
-            results: 初步搜索结果
-            
-        Returns:
-            重排序后的结果
-        """
-        # TODO: 实现重排序逻辑
-        # 需要使用FlagEmbedding或CrossEncoder
-        # 暂时按原分数排序
-        return sorted(results, key=lambda x: x.score, reverse=True)
+        """使用交叉编码器模型对搜索结果进行重排序"""
+        try:
+            if self._reranker_model is None:
+                from sentence_transformers import CrossEncoder
+                self._reranker_model = CrossEncoder(
+                    self.rerank_model,
+                    max_length=512,
+                    device='cpu',
+                )
+                logger.info(f"重排序模型加载成功: {self.rerank_model}")
+
+            pairs = [(query, r.content) for r in results]
+            scores = self._reranker_model.predict(pairs)
+
+            for r, score in zip(results, scores):
+                r.score = float(score)
+
+            return sorted(results, key=lambda x: x.score, reverse=True)
+
+        except Exception as e:
+            logger.warning(f"重排序失败，回退到原始分数排序: {e}")
+            return sorted(results, key=lambda x: x.score, reverse=True)

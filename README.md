@@ -28,9 +28,9 @@ doc_rag/
 │   ├── retrievers/               # 检索模块
 │   ├── evaluators/               # 评估模块
 │   ├── configs/                  # 配置文件
-│   │   ├── default_config.yaml   # 默认配置
-│   │   ├── production_config.yaml # 生产配置
-│   │   └── cleaning_rules.yaml   # 清洗规则
+│   ├── config_manager.py     # 配置管理器
+│   ├── default_config.yaml   # 默认配置（完整配置，只读）
+│   └── cleaning_rules.yaml   # 清洗规则
 │   └── main.py                   # 主程序入口
 ├── tests/                        # 测试脚本与输出
 │   ├── unit/                     # 单元测试
@@ -44,8 +44,17 @@ doc_rag/
 │   └── evaluation/               # 评估报告
 ├── models/                       # 模型文件目录
 ├── logs/                         # 日志文件目录
+├── docs/                         # 项目文档目录
+│   ├── loader_module.md          # 加载器模块文档
+│   ├── cleaner_module.md         # 清洗模块文档
+│   ├── chunker_module.md         # 分块模块文档
+│   ├── utils_module.md           # 工具模块文档
+│   ├── config.md                 # 配置系统文档
+│   ├── config_usage.md           # 配置使用指南
+│   ├── output_control.md         # 输出控制文档
+│   └── incremental_update.md     # 增量更新文档
 ├── data/                         # 数据文件目录
-├── configs.yaml                  # 全局配置文件
+├── config.yaml                   # 用户配置文件（关键参数）
 ├── requirements.txt              # Python依赖
 └── README.md                     # 项目说明
 ```

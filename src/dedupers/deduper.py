@@ -65,6 +65,11 @@ class Deduper(BaseDeduper):
         
         # 输出管理器
         self.output_manager = OutputManager(config)
+        
+        # 哈希表持久化（用于增量去重）
+        self.hash_table_path = deduper_config.get('hash_table_path', './cache/dedup_hash_table.json')
+        self.seen_hashes = set()
+        self._load_hash_table()
     
     def deduplicate(self, chunks: List[TextChunk], filename: Optional[str] = None) -> DedupResult:
         """
@@ -120,6 +125,12 @@ class Deduper(BaseDeduper):
         }
         self.output_manager.save_dedup_report(report, filename)
         
+        # 保存哈希表到文件
+        try:
+            self._save_hash_table()
+        except Exception as e:
+            logger.warning(f"保存哈希表失败: {e}")
+        
         return DedupResult(
             chunks=chunks,
             removed_chunks=removed_chunks,
@@ -128,39 +139,77 @@ class Deduper(BaseDeduper):
         )
     
     def _hash_deduplicate(self, chunks: List[TextChunk]) -> Tuple[List[TextChunk], List[TextChunk]]:
-        """哈希去重"""
-        seen_hashes: Set[str] = set()
+        """哈希去重（使用持久化哈希表）"""
         kept = []
         removed = []
         
         for chunk in chunks:
-            content_hash = FileUtils.calculate_content_hash(chunk.content, 'md5')
+            # 使用已有的content_hash属性，如果没有则计算
+            if hasattr(chunk, 'content_hash') and chunk.content_hash:
+                content_hash = chunk.content_hash
+            else:
+                content_hash = FileUtils.calculate_content_hash(chunk.content, 'md5')
             
-            if content_hash in seen_hashes:
+            if content_hash in self.seen_hashes:
                 removed.append(chunk)
             else:
-                seen_hashes.add(content_hash)
+                self.seen_hashes.add(content_hash)
                 kept.append(chunk)
         
         return kept, removed
     
+    def _load_hash_table(self) -> None:
+        """加载持久化哈希表"""
+        import json
+        from pathlib import Path
+        try:
+            hash_table_path = Path(self.hash_table_path)
+            if hash_table_path.exists():
+                with open(hash_table_path, 'r', encoding='utf-8') as f:
+                    hash_list = json.load(f)
+                self.seen_hashes = set(hash_list)
+                logger.info(f"已加载哈希表，包含 {len(self.seen_hashes)} 个哈希值")
+            else:
+                logger.info("哈希表文件不存在，将创建新表")
+        except Exception as e:
+            logger.warning(f"加载哈希表失败: {e}")
+            self.seen_hashes = set()
+
+    def _save_hash_table(self) -> None:
+        """保存哈希表到文件"""
+        import json
+        from pathlib import Path
+        try:
+            hash_table_path = Path(self.hash_table_path)
+            hash_table_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(hash_table_path, 'w', encoding='utf-8') as f:
+                json.dump(list(self.seen_hashes), f, ensure_ascii=False, indent=2)
+            logger.info(f"已保存哈希表，包含 {len(self.seen_hashes)} 个哈希值")
+        except Exception as e:
+            logger.warning(f"保存哈希表失败: {e}")
+
     def _simhash_deduplicate(self, chunks: List[TextChunk]) -> Tuple[List[TextChunk], List[TextChunk]]:
         """SimHash去重"""
         if not chunks:
             return [], []
         
+        total = len(chunks)
+        print(f"         ⚙️  SimHash去重: 计算 {total} 个分块的SimHash...", flush=True)
+        
         # 计算所有块的SimHash
         simhashes = []
-        for chunk in chunks:
-            # 分词（简单按字符）
+        for idx, chunk in enumerate(chunks):
             features = [chunk.content[i:i+3] for i in range(len(chunk.content)-2)]
             simhash = Simhash(features)
             simhashes.append(simhash)
+            if (idx + 1) % 500 == 0 or idx == total - 1:
+                print(f"         📊 SimHash计算: {idx + 1}/{total}", flush=True)
         
         kept = []
         removed = []
         removed_indices = set()
         
+        print(f"         🔍 SimHash去重: 比较 {total} 个分块...", flush=True)
         for i, chunk in enumerate(chunks):
             if i in removed_indices:
                 continue
@@ -180,6 +229,9 @@ class Deduper(BaseDeduper):
                 removed_indices.add(i)
             else:
                 kept.append(chunk)
+            
+            if (i + 1) % 200 == 0 or i == total - 1:
+                print(f"         📊 SimHash比较: {i + 1}/{total} (保留: {len(kept)}, 移除: {len(removed)})", flush=True)
         
         return kept, removed
     

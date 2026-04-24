@@ -129,7 +129,10 @@ class WordLoader(BaseLoader):
         """使用Unstructured加载.docx"""
         from unstructured.partition.docx import partition_docx
 
-        elements = partition_docx(filename=str(file_path))
+        # 获取语言配置
+        languages = self.config.get('loader.unstructured.languages', ['chi_sim', 'eng'])
+
+        elements = partition_docx(filename=str(file_path), languages=languages)
 
         texts = []
         for element in elements:
@@ -152,7 +155,10 @@ class WordLoader(BaseLoader):
         """使用Unstructured加载.doc"""
         from unstructured.partition.doc import partition_doc
 
-        elements = partition_doc(filename=str(file_path))
+        # 获取语言配置
+        languages = self.config.get('loader.unstructured.languages', ['chi_sim', 'eng'])
+
+        elements = partition_doc(filename=str(file_path), languages=languages)
 
         texts = []
         for element in elements:
@@ -175,8 +181,11 @@ class WordLoader(BaseLoader):
         """使用Unstructured加载.wps（尝试使用doc解析器）"""
         from unstructured.partition.doc import partition_doc
 
+        # 获取语言配置
+        languages = self.config.get('loader.unstructured.languages', ['chi_sim', 'eng'])
+
         # WPS格式与DOC类似，尝试使用doc解析器
-        elements = partition_doc(filename=str(file_path))
+        elements = partition_doc(filename=str(file_path), languages=languages)
 
         texts = []
         for element in elements:

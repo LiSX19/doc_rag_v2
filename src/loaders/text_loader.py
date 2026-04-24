@@ -82,7 +82,10 @@ class TextLoader(BaseLoader):
         """使用Unstructured加载文本"""
         from unstructured.partition.text import partition_text
         
-        elements = partition_text(filename=str(file_path))
+        # 获取语言配置
+        languages = self.config.get('loader.unstructured.languages', ['chi_sim', 'eng'])
+        
+        elements = partition_text(filename=str(file_path), languages=languages)
         
         texts = []
         for element in elements:
@@ -105,7 +108,10 @@ class TextLoader(BaseLoader):
         """使用Unstructured加载Markdown"""
         from unstructured.partition.md import partition_md
         
-        elements = partition_md(filename=str(file_path))
+        # 获取语言配置
+        languages = self.config.get('loader.unstructured.languages', ['chi_sim', 'eng'])
+        
+        elements = partition_md(filename=str(file_path), languages=languages)
         
         texts = []
         for element in elements:
