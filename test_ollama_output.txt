@@ -1,4 +1,0 @@
-LLM实例: InstructorLLM(provider='openai', model='qwen3:4b', client=<Instructor:sync>, temperature=0.01, max_tokens=1024, top_p=0.1)
-评估结果: {'faithfulness': 0.85}
-元数据: {'evaluator': 'RAGAS', 'metrics_used': ['faithfulness']}
-平均分: 0.85

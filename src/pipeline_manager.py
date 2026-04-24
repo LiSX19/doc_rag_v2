@@ -7,14 +7,20 @@ DocRAG Pipeline 管理器
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 from datetime import datetime
-import json
 
 from src.configs import ConfigManager
 from src.utils import get_logger, OutputManager
 from src.utils.file_utils import FileUtils
 from src.utils.incremental_tracker import IncrementalTracker
-from src.utils.pipeline_tracker import PipelineStageTracker, STAGE_FILE_PROCESSING, STAGE_DEDUP, STAGE_ENCODE_STORE
+from src.utils.log_manager import ErrorLogger, FilterLogger
 from src.utils.task_file_manager import TaskFileManager, FileStatus
+from src.pipeline_stage_tracker import (
+    PipelineStageTracker,
+    STAGE_FILE_PROCESSING,
+    STAGE_DEDUP,
+    STAGE_ENCODE_STORE,
+    STAGE_COMPLETE,
+)
 
 logger = get_logger(__name__)
 
@@ -31,6 +37,8 @@ class PipelineManager:
         """
         self.config = config
         self.output_manager = OutputManager(config.get_all())
+        self._error_logger = ErrorLogger()
+        self._filter_logger = FilterLogger()
 
         # 初始化各模块（懒加载）
         self._loader = None
@@ -42,7 +50,6 @@ class PipelineManager:
         self._encoder_manager = None
         self._task_file_manager = None
         self._pipeline_tracker = None
-        self._embedder = None
         self._vector_store = None
         self._retriever = None
 
@@ -116,16 +123,6 @@ class PipelineManager:
         return self._task_file_manager
 
     @property
-    def embedder(self):
-        """获取Embedding模型（现在使用DenseEncoder替代BGEEmbedder）"""
-        if self._embedder is None:
-            from src.encoders import DenseEncoder
-            self._embedder = DenseEncoder(self.config.get_all())
-            # 确保模型已加载
-            self._embedder.initialize()
-        return self._embedder
-
-    @property
     def vector_store(self):
         """获取向量数据库"""
         if self._vector_store is None:
@@ -140,7 +137,7 @@ class PipelineManager:
         if self._retriever is None:
             from src.retrievers import VectorRetriever
             self._retriever = VectorRetriever(
-                embedder=self.embedder,
+                embedder=self.encoder_manager.encoder,
                 vector_store=self.vector_store,
                 config=self.config.get_all()
             )
@@ -201,7 +198,7 @@ class PipelineManager:
         Returns:
             处理统计信息
         """
-        from src.pipeline import build_pipeline, _append_filter_log, _run_dedup_and_encode
+        from src.pipeline import build_pipeline, _run_dedup_and_encode
 
         input_path = input_dir or self.config.get('paths.input_dir', './data')
         input_path = Path(input_path).resolve()
@@ -240,7 +237,7 @@ class PipelineManager:
         # 实时写入过滤日志
         for file_key, file_info in self.task_file_manager.task_files.items():
             if file_info.get('status') == 'filtered':
-                _append_filter_log({
+                self._filter_logger.append({
                     'timestamp': file_info.get('updated_at') or file_info.get('created_at') or datetime.now().isoformat(),
                     'file_path': file_info.get('path', ''),
                     'module': 'filter',
@@ -287,8 +284,8 @@ class PipelineManager:
                     )
                     # 保存增量更新记录
                     self.incremental_tracker._save_records()
-                    # 保存错误记录到文件
-                    self._save_error_log(stats)
+                    # 保存错误和过滤记录
+                    self._save_logs(stats)
                     return stats
                 else:
                     print(f"⚠️  保存的状态中没有分块记录，无法恢复")
@@ -311,7 +308,6 @@ class PipelineManager:
                 files_to_process = self.task_file_manager.get_pending_files(sort_by_priority=True)
 
             if not files_to_process:
-                self._save_error_log({'errors': []})
                 return {
                     'status': 'success',
                     'message': '没有需要处理的文件',
@@ -339,17 +335,17 @@ class PipelineManager:
         # 保存增量更新记录
         self.incremental_tracker._save_records()
 
-        # 保存错误记录到文件
-        self._save_error_log(stats)
+        # 保存错误和过滤记录
+        self._save_logs(stats)
 
         return stats
 
-    def _save_error_log(self, stats: Dict[str, Any]):
-        """保存错误记录到文件"""
+    def _save_logs(self, stats: Dict[str, Any]):
+        """保存错误和过滤日志到文件（从任务文件表和统计数据中收集）"""
         errors = stats.get('errors', [])
-        
+
         # 辅助函数：从错误信息推断模块
-        def infer_module_from_error(error_msg: str) -> str:
+        def _infer_module(error_msg: str) -> str:
             error_msg_lower = error_msg.lower()
             if any(keyword in error_msg_lower for keyword in ['未生成分块', 'chunk', '分块']):
                 return 'chunker'
@@ -363,10 +359,9 @@ class PipelineManager:
                 return 'vector_store'
             else:
                 return 'unknown'
-        
-        # 收集任务文件表中的错误文件（状态为error）
+
+        # 收集任务文件表中的错误和过滤文件
         task_file_errors = []
-        # 收集过滤的文件
         filtered_files = []
         for file_key, file_info in self.task_file_manager.task_files.items():
             status = file_info.get('status')
@@ -375,7 +370,7 @@ class PipelineManager:
                 task_file_errors.append({
                     'timestamp': file_info.get('updated_at') or file_info.get('created_at') or datetime.now().isoformat(),
                     'file_path': file_info.get('path', ''),
-                    'module': infer_module_from_error(error_msg),
+                    'module': _infer_module(error_msg),
                     'reason': error_msg
                 })
             elif status == 'filtered':
@@ -385,89 +380,22 @@ class PipelineManager:
                     'module': 'filter',
                     'reason': file_info.get('error', '文件被过滤')
                 })
-        
-        # 合并所有错误：本次处理的错误 + 任务文件表中的错误
-        all_errors_from_stats = errors + task_file_errors
-        
-        # 如果没有错误也没有过滤文件，直接返回
-        if not all_errors_from_stats and not filtered_files:
-            return
-        
-        # 保存错误日志
-        if all_errors_from_stats:
-            error_log_path = Path('./cache/error_log.json')
-            error_log_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # 读取已有的错误记录
-            existing_errors = []
-            if error_log_path.exists():
-                try:
-                    with open(error_log_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        existing_errors = data.get('errors', [])
-                except Exception:
-                    pass
-            
-            # 合并错误记录（去重：基于文件路径和时间戳）
-            seen = set()
-            all_errors = []
-            for error in existing_errors + all_errors_from_stats:
-                key = (error.get('file_path', ''), error.get('timestamp', ''))
-                if key not in seen:
-                    seen.add(key)
-                    all_errors.append(error)
-            
-            # 保存错误记录
-            error_log = {
-                'updated_at': datetime.now().isoformat(),
-                'total_errors': len(all_errors),
-                'errors': all_errors
-            }
-            
-            try:
-                with open(error_log_path, 'w', encoding='utf-8') as f:
-                    json.dump(error_log, f, ensure_ascii=False, indent=2)
-                print(f"\n⚠️  发现 {len(all_errors_from_stats)} 个错误（包含 {len(task_file_errors)} 个历史错误），已记录到: {error_log_path}")
-            except Exception as e:
-                logger.error(f"保存错误日志失败: {e}")
-        
-        # 保存过滤日志
+
+        # 合并所有错误并写入（errors 已由实时写入记录，task_file_errors 按 (file_path, reason) 去重）
+        existing_error_keys = {(e.get('file_path', ''), e.get('reason', '')) for e in errors}
+        new_task_file_errors = [
+            e for e in task_file_errors
+            if (e.get('file_path', ''), e.get('reason', '')) not in existing_error_keys
+        ]
+        all_errors = errors + new_task_file_errors
+        if all_errors:
+            self._error_logger.merge(all_errors)
+            print(f"\n⚠️  发现 {len(errors)} 个错误（包含 {len(new_task_file_errors)} 个历史错误），已记录")
+
+        # 写入过滤记录
         if filtered_files:
-            filter_log_path = Path('./cache/filter_log.json')
-            filter_log_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # 读取已有的过滤记录
-            existing_filtered = []
-            if filter_log_path.exists():
-                try:
-                    with open(filter_log_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        existing_filtered = data.get('filtered_files', [])
-                except Exception:
-                    pass
-            
-            # 合并过滤记录（去重：基于文件路径）
-            seen = set()
-            all_filtered = []
-            for filtered in existing_filtered + filtered_files:
-                key = (filtered.get('file_path', ''), filtered.get('timestamp', ''))
-                if key not in seen:
-                    seen.add(key)
-                    all_filtered.append(filtered)
-            
-            # 保存过滤记录
-            filter_log = {
-                'updated_at': datetime.now().isoformat(),
-                'total_filtered': len(all_filtered),
-                'filtered_files': all_filtered
-            }
-            
-            try:
-                with open(filter_log_path, 'w', encoding='utf-8') as f:
-                    json.dump(filter_log, f, ensure_ascii=False, indent=2)
-                print(f"🔍  发现 {len(filtered_files)} 个过滤文件，已记录到: {filter_log_path}")
-            except Exception as e:
-                logger.error(f"保存过滤日志失败: {e}")
+            self._filter_logger.merge(filtered_files)
+            print(f"🔍  发现 {len(filtered_files)} 个过滤文件，已记录")
 
     def retrieve(
         self,

@@ -175,42 +175,84 @@ records = manager.store_chunks(file_path, chunks, file_hash)
 
 ### 2.4 去重 (Dedupers) ✅ 已集成
 
-> **状态**: 已集成到主流程
+> **状态**: 已集成到主流程，位于 Chunker 之后
 
 **位置**: `src/dedupers/`
 
+**详细文档**: [docs/deduper\_module.md](./docs/deduper_module.md)
+
 **核心文件**:
 
-- `base.py` - 抽象基类
-- `deduper.py` - 多级去重实现
+- `base.py` - 抽象基类 `BaseDeduper`
+- `deduper.py` - 多级去重实现 `Deduper`
 
 **去重策略**:
 
-- `test`: MD5/SHA256 + SimHash
-- `production`: MD5/SHA256 + SimHash + BGE Embedding
+| 模式 | 策略 |
+|------|------|
+| `test` | MD5/SHA256 → SimHash |
+| `production` | MD5/SHA256 → SimHash → BGE Embedding（TODO） |
+
+**核心方法**:
+
+| 方法 | 说明 |
+|------|------|
+| `deduplicate(chunks, strategy)` | 多级去重主入口，返回 `(deduplicated_chunks, removed_chunks)` |
+| `_hash_deduplicate(chunks)` | 基于 MD5/SHA256 的精确去重 |
+| `_simhash_deduplicate(chunks)` | 基于 SimHash 的近似去重（海明距离阈值） |
+| `_embedding_deduplicate(chunks)` | 基于 BGE Embedding 的语义去重（TODO，当前为存根） |
 
 **集成位置**: 在 `Chunker` 之后，对所有分块进行全局去重
 
+**持久化**: 哈希表通过 `hash_table_path` 配置持久化到 JSON 文件，支持增量去重
+
+**输出**: 通过 `OutputManager.save_dedup_report()` 保存去重报告到 `outputs/dedup/` 目录
+
 ***
 
-### 2.5 Encoding (Encoders) ✅ 已集成
+### 2.5 编码 (Encoders) ✅ 已集成
 
-> **状态**: 已集成到主流程，并替代了原有的Embedder模块
+> **状态**: 已集成到主流程，并替代了原有的 Embedder 模块
 
 **位置**: `src/encoders/`
 
+**详细文档**: [docs/encoder\_module.md](./docs/encoder_module.md)
+
 **核心文件**:
 
-- `base.py` - 抽象基类
-- `dense_encoder.py` - 稠密编码器（基于BGE模型）
-- `sparse_encoder.py` - 稀疏编码器（TF-IDF/BM25）
-- `hybrid_encoder.py` - 混合编码器
-- `encoder_manager.py` - 编码管理器
+- `base.py` - 抽象基类 `BaseEncoder`，数据类 `EncodedVector`
+- `dense_encoder.py` - 稠密编码器 `DenseEncoder`（基于 BGE 模型）
+- `sparse_encoder.py` - 稀疏编码器 `SparseEncoder`（TF-IDF / BM25）
+- `hybrid_encoder.py` - 混合编码器 `HybridEncoder`（稠密 + 稀疏组合）
+- `encoder_manager.py` - 编码管理器 `EncoderManager`，编码数据库 `EncodingDatabase`
+
+**EncoderManager 核心方法**:
+
+| 方法 | 说明 |
+|------|------|
+| `encode_dense(texts)` | 稠密编码，返回 `List[EncodedVector]` |
+| `encode_sparse(texts)` | 稀疏编码，返回 `List[EncodedVector]` |
+| `encode(texts)` | 自动编码（根据配置选择类型），返回 `List[EncodedVector]` |
+| `encode_and_store(texts, metadatas)` | 编码并存储到向量数据库（批量操作） |
 
 **支持模型**:
 
-- `BAAI/bge-small-zh-v1.5`
-- `BAAI/bge-base-zh-v1.5`
+- `BAAI/bge-small-zh-v1.5`（默认，速度快）
+- `BAAI/bge-base-zh-v1.5`（精度高）
+
+**编码类型**:
+
+| 类型 | 说明 | 配置值 |
+|------|------|--------|
+| 稠密编码 | BGE 模型生成固定维度向量 | `dense` |
+| 稀疏编码 | TF-IDF / BM25 词袋向量 | `sparse` |
+| 混合编码 | 稠密 + 稀疏向量拼接/加权 | `hybrid` |
+
+**编码数据库**: `EncodingDatabase` 提供基于哈希的编码缓存，避免重复编码
+
+**增量编码**: 通过文件哈希检查跳过未变化文件的编码
+
+**输出**: 通过 `OutputManager.save_embeddings()` 保存 `.npy` 向量文件和 `.meta.json` 元数据文件到 `outputs/embeddings/`
 
 ***
 
@@ -220,12 +262,34 @@ records = manager.store_chunks(file_path, chunks, file_hash)
 
 **位置**: `src/vector_stores/`
 
+**详细文档**: [docs/vector\_store\_module.md](./docs/vector_store_module.md)
+
 **核心文件**:
 
-- `base.py` - 抽象基类
-- `chroma_store.py` - Chroma 实现
+- `base.py` - 抽象基类 `BaseVectorStore`
+- `chroma_store.py` - ChromaDB 实现 `ChromaStore`
 
-**集成位置**: 在 `Encoder` 之后，用于存储向量到Chroma数据库
+**集成位置**: 在 `Encoder` 之后，用于存储向量到 Chroma 数据库
+
+**ChromaStore 核心方法**:
+
+| 方法 | 说明 |
+|------|------|
+| `add(contents, embeddings, metadatas)` | 批量添加向量到集合 |
+| `search(query_embedding, top_k)` | 检索最相似的 top_k 个向量 |
+| `get_existing_ids()` | 获取已有 ID 列表，用于增量更新去重 |
+| `get_stats()` | 获取集合统计信息（总数、维度等） |
+| `delete_collection()` | 删除整个集合 |
+
+**配置参数**:
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `vector_store.collection_name` | str | `"doc_rag"` | Chroma 集合名称 |
+| `vector_store.distance_metric` | str | `"cosine"` | 距离度量：`cosine` / `l2` / `ip` |
+| `vector_store.persist_directory` | str | `"./chroma_db"` | 持久化目录路径 |
+
+**索引类型**: 使用 HNSW（Hierarchical Navigable Small World）索引，支持高效的近似最近邻搜索
 
 **使用方式**:
 
@@ -238,6 +302,10 @@ vector_store.add(contents=texts, embeddings=embeddings, metadatas=metadatas)
 
 # 检索
 results = vector_store.search(query_embedding, top_k=5)
+
+# 增量更新
+existing_ids = vector_store.get_existing_ids()
+# 过滤已存在的 ID，只添加新的
 ```
 
 ***
@@ -248,12 +316,37 @@ results = vector_store.search(query_embedding, top_k=5)
 
 **位置**: `src/retrievers/`
 
+**详细文档**: [docs/retriever\_module.md](./docs/retriever_module.md)
+
 **核心文件**:
 
-- `base.py` - 抽象基类
-- `vector_retriever.py` - 向量检索实现
+- `base.py` - 抽象基类 `BaseRetriever`
+- `vector_retriever.py` - 向量检索实现 `VectorRetriever`
 
 **集成位置**: 在 `retrieve` 命令中调用，从 `VectorStore` 检索相关内容
+
+**VectorRetriever 核心方法**:
+
+| 方法 | 说明 |
+|------|------|
+| `retrieve(query, top_k)` | 检索主入口，内部包含编码 + 向量搜索 + 可选重排序 |
+| `retrieve_and_save(query, top_k, output_manager)` | 检索并保存结果到文件 |
+
+**处理流程**:
+
+```
+query → encode(query) → vector_store.search() → [optional rerank] → results
+```
+
+**可选重排序**: 支持通过 CrossEncoder 模型对初次检索结果进行重排序，提高检索精度
+
+**配置参数**:
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `retriever.top_k` | int | `5` | 返回结果数量 |
+| `retriever.rerank.enabled` | bool | `false` | 是否启用重排序 |
+| `retriever.rerank.model` | str | `"BAAI/bge-reranker-base"` | 重排序模型名称 |
 
 **使用方式**:
 
@@ -263,6 +356,9 @@ retriever = VectorRetriever(config)
 
 # 检索
 results = retriever.retrieve(query, top_k=5)
+
+# 检索并保存
+retriever.retrieve_and_save(query, top_k=5, output_manager=output_manager)
 ```
 
 ***
@@ -273,21 +369,43 @@ results = retriever.retrieve(query, top_k=5)
 
 **位置**: `src/evaluators/`
 
+**详细文档**: [docs/evaluator\_module.md](./docs/evaluator_module.md)
+
 **核心文件**:
 
-- `base.py` - 抽象基类
-- `ragas_evaluator.py` - RAGAS 评估实现
+- `base.py` - 抽象基类 `BaseEvaluator`
+- `ragas_evaluator.py` - RAGAS 评估实现 `RAGASEvaluator`
+
+**RAGASEvaluator 功能**:
+
+| 功能 | 说明 |
+|------|------|
+| LLM Provider | 支持 OpenAI API 和本地 Ollama 部署 |
+| 评估指标 | 精确率（Precision）、召回率（Recall）、F1 分数 |
+| 降级机制 | RAGAS 不可用时自动回退到模拟评估 |
+| 报告输出 | 通过 `OutputManager.save_evaluation_report()` 保存评估报告 |
+
+**配置参数**:
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `evaluator.provider` | str | `"openai"` | LLM 提供者：`openai` / `ollama` |
+| `evaluator.model` | str | `"gpt-4o-mini"` | 评估用模型名称 |
+| `evaluator.metrics` | list | `["precision", "recall", "f1"]` | 评估指标列表 |
+
+**降级策略**: 当 RAGAS 库或 LLM 服务不可用时，`evaluate_retrieval()` 自动降级为基于关键词匹配的模拟评估，确保核心流程不因评估模块故障而中断
 
 **集成位置**: 用于评估检索和生成质量，目前可通过API调用，但未集成到CLI命令
 
 **使用方式**:
 
 ```python
-from src.evaluators import RagasEvaluator
-evaluator = RagasEvaluator(config)
+from src.evaluators import RAGASEvaluator
+evaluator = RAGASEvaluator(config)
 
 # 评估检索结果
 metrics = evaluator.evaluate_retrieval(query, retrieved_docs, reference_docs)
+# 返回: {"precision": 0.85, "recall": 0.78, "f1": 0.81}
 ```
 
 ***

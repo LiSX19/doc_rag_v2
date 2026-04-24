@@ -321,6 +321,13 @@ class EncoderManager:
         
         return None
     
+    @staticmethod
+    def _sanitize_filename(name: str) -> str:
+        """将字符串中的路径分隔符替换为安全的文件名字符"""
+        for char in ('\\', '/', ':'):
+            name = name.replace(char, '_')
+        return name
+
     def _save_encoded_vectors(
         self,
         chunks_info: List[Dict[str, Any]],
@@ -333,15 +340,17 @@ class EncoderManager:
             dense_path = None
             sparse_path = None
             
+            safe_name = self._sanitize_filename(chunk_info['chunk_id'])
+            
             # 保存稠密向量
             if vector.has_dense:
-                dense_path = self.cache_dir / f"{chunk_info['chunk_id']}_dense.npy"
+                dense_path = self.cache_dir / f"{safe_name}_dense.npy"
                 np.save(dense_path, vector.dense_vector)
                 dense_path = str(dense_path)
             
             # 保存稀疏向量
             if vector.has_sparse:
-                sparse_path = self.cache_dir / f"{chunk_info['chunk_id']}_sparse.json"
+                sparse_path = self.cache_dir / f"{safe_name}_sparse.json"
                 with open(sparse_path, 'w', encoding='utf-8') as f:
                     json.dump(vector.sparse_vector, f)
                 sparse_path = str(sparse_path)

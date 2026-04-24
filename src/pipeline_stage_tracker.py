@@ -3,6 +3,9 @@ Pipeline 全局阶段追踪器
 
 跟踪 pipeline 的全局阶段（去重、编码存储）完成状态。
 解决中断后重新运行时，文件已标记为 completed 但全局阶段未执行的问题。
+
+设计说明：该模块仅服务于 pipeline 流程，不属于通用工具，
+因此放在 src/ 根目录而非 src/utils/ 下。
 """
 
 import json
@@ -10,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from .logger import get_logger
+from src.utils import get_logger
 
 logger = get_logger(__name__)
 

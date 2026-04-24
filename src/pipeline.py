@@ -10,8 +10,11 @@ from datetime import datetime
 
 from src.utils import get_logger
 from src.utils.task_file_manager import FileStatus
-from src.utils.pipeline_tracker import (
+from src.utils.progress_tracker import ProgressTracker
+from src.utils.log_manager import ErrorLogger, FilterLogger
+from src.pipeline_stage_tracker import (
     PipelineStageTracker,
+    STAGE_IDLE,
     STAGE_FILE_PROCESSING,
     STAGE_DEDUP,
     STAGE_ENCODE_STORE,
@@ -19,6 +22,10 @@ from src.utils.pipeline_tracker import (
 )
 
 logger = get_logger(__name__)
+
+# 模块级日志管理器实例（用于实时写入）
+error_logger = ErrorLogger()
+filter_logger = FilterLogger()
 
 
 def build_pipeline(
@@ -57,8 +64,6 @@ def build_pipeline(
     Returns:
         处理统计信息
     """
-    from src.pipeline_utils import ProgressTracker
-
     stats = {
         'start_time': datetime.now().isoformat(),
         'total_files': len(files_to_process),
@@ -85,19 +90,15 @@ def build_pipeline(
         file_path = Path(file_path)
         progress.update(1, file_path.name)
 
-        # 显示当前处理的任务
-        print(f"[{i}/{len(files_to_process)}] 📄 {file_path.name}")
-
         # 更新文件状态
         task_file_manager.update_file_status(file_path, FileStatus.PROCESSING)
 
         try:
             # 1.1 加载文档
-            print(f"      📖 正在加载...", end=' ')
             document = _load_document(loader, file_path, config, progress)
             if not document:
                 error_msg = f"文件加载失败或为空: {file_path.name}"
-                print(f"❌ 失败")
+                print(f"      ❌ {error_msg}")
                 error_entry = {
                     'timestamp': datetime.now().isoformat(),
                     'file_path': str(file_path),
@@ -105,20 +106,18 @@ def build_pipeline(
                     'reason': error_msg
                 }
                 stats['errors'].append(error_entry)
-                _append_error_log(error_entry)
+                error_logger.append(error_entry)
                 task_file_manager.update_file_status(file_path, FileStatus.ERROR, error_msg)
                 continue
-            print(f"✅")
 
             stats['loaded_files'] += 1
             _save_loaded_document(output_manager, file_path, document)
 
             # 1.2 文本清洗
-            print(f"      🧹 正在清洗...", end=' ')
             cleaned_text = _clean_text(cleaner, document, file_path, is_ocr)
             if not cleaned_text:
                 error_msg = f"清洗后文本为空: {file_path.name}"
-                print(f"❌ 失败")
+                print(f"      ❌ {error_msg}")
                 error_entry = {
                     'timestamp': datetime.now().isoformat(),
                     'file_path': str(file_path),
@@ -126,20 +125,18 @@ def build_pipeline(
                     'reason': error_msg
                 }
                 stats['errors'].append(error_entry)
-                _append_error_log(error_entry)
+                error_logger.append(error_entry)
                 task_file_manager.update_file_status(file_path, FileStatus.ERROR, error_msg)
                 continue
-            print(f"✅")
 
             stats['cleaned_files'] += 1
             _save_cleaned_document(output_manager, file_path, document, cleaned_text)
 
             # 1.3 文本分块
-            print(f"      ✂️  正在分块...", end=' ')
             chunks = _chunk_text(chunker, cleaned_text, document, file_path)
             if not chunks:
                 error_msg = f"未生成分块: {file_path.name}"
-                print(f"❌ 失败")
+                print(f"      ❌ {error_msg}")
                 error_entry = {
                     'timestamp': datetime.now().isoformat(),
                     'file_path': str(file_path),
@@ -147,10 +144,9 @@ def build_pipeline(
                     'reason': error_msg
                 }
                 stats['errors'].append(error_entry)
-                _append_error_log(error_entry)
+                error_logger.append(error_entry)
                 task_file_manager.update_file_status(file_path, FileStatus.ERROR, error_msg)
                 continue
-            print(f"✅ ({len(chunks)} 个分块)")
 
             stats['chunked_files'] += 1
             stats['total_chunks'] += len(chunks)
@@ -159,14 +155,12 @@ def build_pipeline(
             # 1.4 保存分块到数据库
             _store_chunks(chunk_manager, file_path, chunks)
 
-
-
             # 更新文件状态为完成
             task_file_manager.update_file_status(file_path, FileStatus.COMPLETED)
 
         except Exception as e:
             error_msg = f"处理文件失败 {file_path.name}: {str(e)}"
-            print(f"❌ 失败: {str(e)}")
+            print(f"      ❌ {error_msg}")
             logger.error(error_msg)
             error_entry = {
                 'timestamp': datetime.now().isoformat(),
@@ -175,11 +169,11 @@ def build_pipeline(
                 'reason': str(e)
             }
             stats['errors'].append(error_entry)
-            _append_error_log(error_entry)
+            error_logger.append(error_entry)
             task_file_manager.update_file_status(file_path, FileStatus.ERROR, error_msg)
             continue
 
-    progress.close()
+    progress.close(clear_line=True)
     print(f"\n✅ 文件处理阶段完成")
 
     # 保存文件处理阶段状态（用于中断恢复）
@@ -223,7 +217,7 @@ def _run_dedup_and_encode(
                 if pipeline_tracker:
                     pipeline_tracker.set_stage(STAGE_DEDUP, stats)
             else:
-                print(f"⚠️  去重阶段无结果")
+                print(f"   ⚠️  去重阶段无结果")
         else:
             all_records = chunk_manager.db.get_all_chunks()
             unique_count = len(all_records) if all_records else 0
@@ -241,13 +235,13 @@ def _run_dedup_and_encode(
                 stats.update(encode_result)
                 if pipeline_tracker:
                     pipeline_tracker.set_stage(STAGE_ENCODE_STORE, stats)
-                print(f"✅ 向量数据库存储完成: 存储了 {encode_result.get('stored_chunks', 0)} 个唯一分块")
+                print(f"   ✅ 向量数据库存储完成: 存储了 {encode_result.get('stored_chunks', 0)} 个唯一分块")
             else:
-                print(f"⚠️  编码存储阶段未存储任何分块")
+                print(f"   ⚠️  编码存储阶段未存储任何分块")
         else:
-            print(f"⚠️  没有唯一分块需要存储")
+            print(f"   ⚠️  没有唯一分块需要存储")
     else:
-        print(f"⚠️  没有分块需要去重，跳过全局去重和编码存储")
+        print(f"   ⚠️  没有分块需要去重，跳过全局去重和编码存储")
 
     if pipeline_tracker:
         pipeline_tracker.set_stage(STAGE_COMPLETE, stats)
@@ -261,7 +255,6 @@ def _remove_duplicates_from_vector_store(vector_store, removed_chunks: List):
         return
 
     try:
-        # 获取要删除的ID
         ids_to_remove = []
         for chunk in removed_chunks:
             if hasattr(chunk, 'source_file') and hasattr(chunk, 'chunk_index'):
@@ -269,7 +262,6 @@ def _remove_duplicates_from_vector_store(vector_store, removed_chunks: List):
                 ids_to_remove.append(chunk_id)
 
         if ids_to_remove:
-            # 从向量数据库删除
             vector_store.delete(ids=ids_to_remove)
             logger.info(f"从向量数据库删除 {len(ids_to_remove)} 个重复分块")
     except Exception as e:
@@ -279,7 +271,6 @@ def _remove_duplicates_from_vector_store(vector_store, removed_chunks: List):
 def _load_document(loader, file_path: Path, config: Dict, progress) -> Optional[Dict]:
     """加载单个文档"""
     if file_path.suffix.lower() == '.pdf':
-        # PDF 特殊处理，支持OCR进度回调
         from src.loaders import DocumentLoader
         config_dict = config.copy()
         config_dict['ocr'] = config_dict.get('ocr', {})
@@ -374,18 +365,20 @@ def _store_chunks(chunk_manager, file_path: Path, chunks: List):
 
 
 def _deduplicate_chunks(chunk_manager, deduper, stats: Dict) -> Optional[Dict]:
-    """执行全局去重"""
-    print(f"      📂 正在加载全部分块记录...", end=' ', flush=True)
+    """执行全局去重（带进度条）"""
+    print(f"   📂 正在加载全部分块记录...", end=' ', flush=True)
     all_chunk_records = chunk_manager.db.get_all_chunks()
     if not all_chunk_records:
         print(f"❌ 无分块记录")
         return None
     print(f"✅ ({len(all_chunk_records)} 个分块)")
 
-    # 转换为TextChunk
     from src.chunkers.base import TextChunk
     all_chunks = []
     hash_compute_count = 0
+
+    # 去重进度条
+    dedup_progress = ProgressTracker(total=len(all_chunk_records), desc="  去重进度")
     for i, record in enumerate(all_chunk_records):
         chunk = TextChunk(
             index=record.chunk_index,
@@ -403,24 +396,30 @@ def _deduplicate_chunks(chunk_manager, deduper, stats: Dict) -> Optional[Dict]:
             hash_compute_count += 1
         all_chunks.append(chunk)
 
-        if (i + 1) % 500 == 0 or i == len(all_chunk_records) - 1:
-            print(f"      📦 转换分块: {i + 1}/{len(all_chunk_records)}", flush=True)
+        dedup_progress.update(1)
+
+    dedup_progress.close(clear_line=True)
+
     if hash_compute_count > 0:
-        print(f"      🔑 计算了 {hash_compute_count} 个缺失的哈希值")
+        print(f"   🔑 计算了 {hash_compute_count} 个缺失的哈希值")
 
-    print(f"      🔍 正在执行去重...", flush=True)
+    # 保存持久化哈希表（用于增量更新时判断新文件与旧文件是否重复）
+    saved_hashes = deduper.seen_hashes.copy()
+    # 清空：在当前批内进行去重，只比较所有分块间的重复
+    deduper.seen_hashes.clear()
     dedup_result = deduper.deduplicate(all_chunks, filename="global")
+    # 恢复并更新持久化哈希表：保留旧哈希 + 新增唯一分块的哈希
+    deduper.seen_hashes = saved_hashes | {chunk.content_hash for chunk in dedup_result.chunks if hasattr(chunk, 'content_hash') and chunk.content_hash}
+    deduper._save_hash_table()
 
-    # 删除重复分块
     removed_chunk_ids = [chunk.chunk_id for chunk in dedup_result.removed_chunks if hasattr(chunk, 'chunk_id')]
     if removed_chunk_ids:
         chunk_manager.db.delete_chunks_by_ids(removed_chunk_ids)
-        print(f"      🗑️  已删除 {len(removed_chunk_ids)} 个重复分块")
+        print(f"   🗑️  已删除 {len(removed_chunk_ids)} 个重复分块")
 
-    # 计算数据库中去重前后的实际分块数
     total_before = len(all_chunk_records)
     total_after = total_before - len(removed_chunk_ids)
-    print(f"      ✅ 去重完成: {total_before} → {total_after} 个唯一分块 (移除 {len(removed_chunk_ids)} 个)")
+    print(f"   ✅ 去重完成: {total_before} → {total_after} 个唯一分块 (移除 {len(removed_chunk_ids)} 个)")
 
     return {
         'deduped_files': stats['chunked_files'],
@@ -436,21 +435,19 @@ def _encode_and_store(
     stats: Dict,
     pipeline_tracker: Optional[PipelineStageTracker] = None,
 ) -> Optional[Dict]:
-    """编码分块并分批存储到向量数据库（支持断点续传）"""
+    """编码分块并分批存储到向量数据库（支持断点续传，带进度条）"""
     all_chunk_records = chunk_manager.db.get_all_chunks()
     if not all_chunk_records:
         return None
 
-    # 检查向量数据库中已有的 ID（断点续传）
     existing_ids = set()
     try:
         existing_ids = set(vector_store.get_existing_ids())
         if existing_ids:
-            print(f"      📋 检测到 {len(existing_ids)} 个已存储的分块，跳过...")
+            print(f"   📋 检测到 {len(existing_ids)} 个已存储的分块，跳过...")
     except Exception:
         pass
 
-    # 过滤出需要编码的分块（跳过已存储的）
     records_to_encode = []
     for record in all_chunk_records:
         chunk_id = f"{record.source_file}_{record.chunk_index}"
@@ -458,7 +455,7 @@ def _encode_and_store(
             records_to_encode.append(record)
 
     if not records_to_encode:
-        print(f"      ✅ 所有分块已存储，无需编码")
+        print(f"   ✅ 所有分块已存储，无需编码")
         return {
             'encoded_chunks': len(all_chunk_records),
             'stored_chunks': len(all_chunk_records),
@@ -470,20 +467,20 @@ def _encode_and_store(
     all_encoded = []
     stored_count = 0
 
-    print(f"      🧠 开始编码并存储 {total} 个分块（{total_batches} 批，每批 {batch_size} 个）...")
+    # 编码存储进度条
+    encode_progress = ProgressTracker(total=total, desc="  编码存储")
 
     for batch_idx in range(0, total, batch_size):
         batch_records = records_to_encode[batch_idx:batch_idx + batch_size]
         batch_num = batch_idx // batch_size + 1
 
-        # 编码当前批次
         encoded = encoder_manager.encode_chunks(batch_records, use_cache=True)
         if not encoded:
             print(f"      ⚠️  批次 {batch_num}/{total_batches} 编码失败，跳过")
+            encode_progress.update(len(batch_records))
             continue
         all_encoded.extend(encoded)
 
-        # 准备存储数据
         texts = []
         embeddings = []
         metadatas = []
@@ -513,136 +510,31 @@ def _encode_and_store(
             metadatas.append(metadata)
             ids.append(chunk_id)
 
-        # 立即存储当前批次
         try:
             vector_store.add(contents=texts, embeddings=embeddings, metadatas=metadatas, ids=ids)
             stored_count += len(texts)
         except Exception as e:
             logger.error(f"批次 {batch_num}/{total_batches} 存储失败: {e}")
+            encode_progress.update(len(batch_records))
             continue
 
-        # 更新 pipeline_tracker 进度
         if pipeline_tracker:
             progress_stats = dict(stats)
             progress_stats['encoded_chunks'] = stored_count
             progress_stats['stored_chunks'] = stored_count
             pipeline_tracker.set_stage(STAGE_ENCODE_STORE, progress_stats)
 
-        print(f"      💾 批次 {batch_num}/{total_batches}: "
-              f"已存储 {stored_count}/{total} 个分块", flush=True)
+        encode_progress.update(len(batch_records))
 
-    # 保存所有编码结果到文件
+    encode_progress.close(clear_line=True)
+
     if all_encoded:
         try:
             encoder_manager.save_embeddings_to_npy(all_encoded)
         except Exception as e:
             logger.warning(f"保存编码结果到文件失败: {e}")
 
-    print(f"      ✅ 向量数据库存储完成: {stored_count} 个分块")
     return {
         'encoded_chunks': len(all_encoded),
         'stored_chunks': stored_count,
     }
-
-
-def _encode_and_store_single_file(chunk_manager, encoder_manager, vector_store, file_path: Path):
-    """编码单个文件的分块并存储到向量数据库"""
-    # 获取该文件的分块记录
-    all_chunk_records = chunk_manager.db.get_all_chunks()
-    if not all_chunk_records:
-        return 0
-
-    # 筛选出当前文件的分块（基于 source_file 匹配）
-    file_records = [
-        record for record in all_chunk_records
-        if str(record.source_file) == str(file_path.resolve())
-    ]
-
-    if not file_records:
-        return 0
-
-    # 编码分块
-    encoded_vectors = encoder_manager.encode_chunks(file_records, use_cache=True)
-
-    if not encoded_vectors:
-        return 0
-
-    # 准备数据
-    texts = []
-    embeddings = []
-    metadatas = []
-    ids = []
-
-    for record, encoded_vec in zip(file_records, encoded_vectors):
-        chunk_id = f"{record.source_file}_{record.chunk_index}"
-        texts.append(record.content)
-
-        # 提取 dense_vector
-        if hasattr(encoded_vec, 'dense_vector') and encoded_vec.dense_vector is not None:
-            embeddings.append(encoded_vec.dense_vector)
-        else:
-            embeddings.append(encoded_vec)
-
-        # 构建元数据
-        metadata = {
-            'source': str(record.source_file),
-            'chunk_index': int(record.chunk_index),
-            'start_pos': int(record.start_pos),
-            'end_pos': int(record.end_pos),
-        }
-        # 只添加可序列化的元数据
-        if record.metadata:
-            for key, value in record.metadata.items():
-                if isinstance(value, (str, int, float, bool)):
-                    metadata[key] = value
-                elif isinstance(value, (list, tuple)) and len(value) > 0 and isinstance(value[0], (str, int, float, bool)):
-                    metadata[key] = list(value)[:10]
-        metadatas.append(metadata)
-        ids.append(chunk_id)
-
-    # 添加到向量数据库
-    vector_store.add(contents=texts, embeddings=embeddings, metadatas=metadatas, ids=ids)
-    
-    return len(texts)  # 返回存储的分块数
-
-
-def _append_error_log(error_entry: Dict):
-    """实时追加单条错误记录到 error_log.json"""
-    import json
-    from pathlib import Path
-    log_path = Path('./cache/error_log.json')
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if log_path.exists():
-            with open(log_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        else:
-            data = {'updated_at': '', 'total_errors': 0, 'errors': []}
-        data['errors'].append(error_entry)
-        data['total_errors'] = len(data['errors'])
-        data['updated_at'] = datetime.now().isoformat()
-        with open(log_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.warning(f"实时写入错误日志失败: {e}")
-
-
-def _append_filter_log(filter_entry: Dict):
-    """实时追加单条过滤记录到 filter_log.json"""
-    import json
-    from pathlib import Path
-    log_path = Path('./cache/filter_log.json')
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if log_path.exists():
-            with open(log_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        else:
-            data = {'updated_at': '', 'total_filtered': 0, 'filtered_files': []}
-        data['filtered_files'].append(filter_entry)
-        data['total_filtered'] = len(data['filtered_files'])
-        data['updated_at'] = datetime.now().isoformat()
-        with open(log_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.warning(f"实时写入过滤日志失败: {e}")
