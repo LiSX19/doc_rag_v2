@@ -139,11 +139,14 @@ dmypy.json
 
 # ==================== Project Specific ====================
 # 模型文件（大文件不提交到Git）
-models/*/pytorch_model.bin
-models/*/model.safetensors
-models/*/*.bin
-models/*/*.pth
-models/*/*.onnx
+models/**/pytorch_model.bin
+models/**/model.safetensors
+models/**/*.bin
+models/**/*.pth
+models/**/*.onnx
+models/**/*.msgpack
+models/**/*.h5
+models/**/onnx/
 
 # 向量数据库
 chroma_db/

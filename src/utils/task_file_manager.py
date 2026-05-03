@@ -165,6 +165,13 @@ class TaskFileManager:
         
         if is_resuming:
             logger.info(f"继续之前的任务: {batch_id}")
+            # 清理不在当前文件列表中的陈旧条目（如不支持的格式文件或被删除的文件）
+            current_file_keys = {str(Path(fp).resolve()) for fp in file_paths}
+            stale_keys = [k for k in self.task_files if k not in current_file_keys]
+            for k in stale_keys:
+                del self.task_files[k]
+            if stale_keys:
+                logger.info(f"已清理 {len(stale_keys)} 个陈旧的条目（文件不存在或格式不支持）")
         else:
             logger.info(f"创建新任务计划: {batch_id}")
             self.task_files.clear()

@@ -16,7 +16,7 @@
 ## 模块概述
 
 Loader 模块是文档 RAG 系统的文档加载与解析组件，负责：
-- 支持 **18 种文件格式** 的加载与解析
+- 支持 **22 种文件格式** 的加载与解析
 - 提供统一的文档加载接口
 - 实现智能降级策略（优先现代库，降级到专用库/COM/子进程）
 - 支持并行处理（ProcessPoolExecutor）和进度监控
@@ -45,6 +45,10 @@ Loader 模块是文档 RAG 系统的文档加载与解析组件，负责：
 | 文本 | RTF | `.rtf` | pywin32 → Unstructured → 原始读取 |
 | 网页 | HTML | `.html` | Unstructured → BeautifulSoup → 原始读取 |
 | 网页 | HTML | `.htm` | Unstructured → BeautifulSoup → 原始读取 |
+| 音视频 | MP3 | `.mp3` | ffmpeg → Whisper STT |
+| 音视频 | WAV | `.wav` | Whisper STT |
+| 音视频 | WMA | `.wma` | ffmpeg → Whisper STT |
+| 音视频 | MOV | `.mov` | ffmpeg音频提取 → Whisper STT |
 
 ---
 
@@ -65,6 +69,7 @@ src/loaders/
 ├── html_loader.py           # HTML 加载器
 ├── text_loader.py           # 文本加载器
 ├── rtf_loader.py            # RTF 加载器
+├── audio_loader.py          # 音视频加载器（STT/Whisper）
 │
 ├── ocr_processor.py         # OCR 子进程脚本（在OCR环境中独立运行）
 │
@@ -186,6 +191,10 @@ LoaderFactory.register('.rtf', RTFLoader)
 LoaderFactory.register('.html', HTMLLoader)
 LoaderFactory.register('.htm', HTMLLoader)
 LoaderFactory.register('.caj', CAJLoader)
+LoaderFactory.register('.mp3', AudioLoader)
+LoaderFactory.register('.wav', AudioLoader)
+LoaderFactory.register('.wma', AudioLoader)
+LoaderFactory.register('.mov', AudioLoader)
 ```
 
 ### 3. DocumentLoader (document_loader.py)
@@ -411,6 +420,33 @@ HTML 文件
 - Markdown 使用 `partition_md` 进行结构化解析
 - 多编码自动检测：`utf-8` → `gbk` → `gb2312` → `latin-1`
 
+### 音视频解析流程 (audio_loader.py)
+
+```
+音频文件 (.mp3/.wav/.wma)           视频文件 (.mov)
+        │                                  │
+        │                                  ├─> ffmpeg 提取音频
+        │                                  │   └─ WAV 格式
+        │                                  │
+        └────────> Whisper STT <───────────┘
+                      │
+                      ├─> 加载模型 (base/small/medium/large)
+                      ├─> 转写 (language='zh', task='transcribe')
+                      └─> 返回文本内容
+```
+
+**关键特性：**
+- 使用 OpenAI Whisper 进行语音转文字
+- 自动检测ffmpeg进行格式转换（非WAV格式需要转换）
+- 视频文件先通过ffmpeg提取音频流
+- WAV文件无需转换，直接转写
+- 配置参数：`loader.audio.stt_model`, `loader.audio.device`, `loader.audio.ffmpeg_timeout`
+- 返回元数据包含：`duration_seconds`, `language`, `segment_count`
+
+**前置要求：**
+- Whisper: `pip install openai-whisper`
+- ffmpeg: 需要系统安装并添加到PATH
+
 ---
 
 ## 输入与输出
@@ -448,6 +484,12 @@ config = {
         },
         'caj': {
             'caj2pdf_dir': './src/loaders/caj2pdf',
+        },
+        'audio': {
+            'stt_model': 'base',      # Whisper模型: tiny/base/small/medium/large
+            'device': 'auto',          # 运行设备: cuda/cpu/auto
+            'conda_env': None,         # ffmpeg环境名称（可选）
+            'ffmpeg_timeout': 300,     # ffmpeg转换超时（秒）
         },
         'unstructured': {
             'languages': ['chi_sim', 'eng'],  # OCR/解析语言
@@ -535,6 +577,12 @@ config = {
         # CAJLoader 特有
         #   parser: 'caj2pdf+{PDF解析器名}'
         #   original_format: 'caj'
+
+        # AudioLoader 特有
+        #   parser: 'whisper_{model_size}' (如 'whisper_base')
+        #   duration_seconds: float  # 音视频时长
+        #   language: str           # 检测到的语言
+        #   segment_count: int      # 段落/片段数量
     },
     'pages': [                   # 分页/分片内容（可选）
         {
@@ -601,6 +649,9 @@ loader.clear_incremental_records()
 - **RTF**: pywin32(COM) → Unstructured → 原始读取
 - **HTML**: Unstructured → BeautifulSoup → 原始读取
 - **CAJ**: caj2pdf → PDFLoader → Unstructured/OCR
+- **音频(.mp3/.wma)**: ffmpeg → WAV → Whisper STT
+- **音频(.wav)**: Whisper STT（直接转写）
+- **视频(.mov)**: ffmpeg音频提取 → WAV → Whisper STT
 
 ### 4. 错误重试
 

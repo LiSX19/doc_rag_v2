@@ -28,7 +28,6 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
-# 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -50,12 +49,10 @@ def cli(ctx, config, verbose, log_level, log_dir):
     """DocRAG - 文档RAG系统"""
     ctx.ensure_object(dict)
 
-    # 加载配置
     config_manager = ConfigManager(config_path=config)
     ctx.obj['config'] = config_manager
     ctx.obj['verbose'] = verbose
 
-    # 设置日志
     effective_log_level = log_level or config_manager.get('logging.level', 'INFO')
     ctx.obj['log_level'] = effective_log_level
 
@@ -106,7 +103,6 @@ def build(ctx, input_dir, file_limit, incremental, ocr, output_dir, interactive,
     config = ctx.obj['config']
     verbose = ctx.obj.get('verbose', False)
 
-    # 交互式配置
     if interactive:
         from src.utils.interactive_config import interactive_config
         user_config = interactive_config(config.get_all())
@@ -115,13 +111,11 @@ def build(ctx, input_dir, file_limit, incremental, ocr, output_dir, interactive,
         if user_config.get('paths.output_dir'):
             output_dir = user_config.get('paths.output_dir')
 
-    # 更新配置
     if input_dir:
         config.set('paths.input_dir', input_dir)
     if output_dir:
         config.set('paths.output_dir', output_dir)
 
-    # 处理输出模式
     if output_mode:
         config.set('output.mode', output_mode)
 
@@ -136,8 +130,6 @@ def build(ctx, input_dir, file_limit, incremental, ocr, output_dir, interactive,
         if output_dedup is not None:
             config.set('output.stages.dedup_report', output_dedup)
 
-
-
     if verbose:
         print("=" * 60)
         print("开始构建知识库")
@@ -150,10 +142,8 @@ def build(ctx, input_dir, file_limit, incremental, ocr, output_dir, interactive,
         print()
 
     try:
-        # 创建Pipeline管理器并执行构建
         pipeline = PipelineManager(config)
 
-        # 如果需要强制重建，清空向量数据库
         if rebuild:
             import shutil
             chroma_db_path = Path('./chroma_db')
@@ -169,7 +159,6 @@ def build(ctx, input_dir, file_limit, incremental, ocr, output_dir, interactive,
             force_rebuild=rebuild
         )
 
-        # 打印统计信息
         if stats.get('status') == 'error':
             print(f"\n错误: {stats.get('message')}")
             return
@@ -180,7 +169,6 @@ def build(ctx, input_dir, file_limit, incremental, ocr, output_dir, interactive,
                 print("向量数据库已有数据，可直接使用 retrieve 命令进行检索")
             return
 
-        # 打印详细统计
         print_stats(stats)
 
         if verbose or stats.get('errors'):
@@ -212,7 +200,6 @@ def retrieve(ctx, query, top_k, threshold, output_format, save):
     try:
         pipeline = PipelineManager(config)
 
-        # 检查向量数据库
         collection_count = pipeline.vector_store.collection.count()
         print(f"向量数据库中共有 {collection_count} 个文档片段")
 
@@ -225,7 +212,6 @@ def retrieve(ctx, query, top_k, threshold, output_format, save):
             print(f"相似度阈值: {threshold}")
         print("-" * 60)
 
-        # 执行检索
         result = pipeline.retrieve(query, top_k=top_k, threshold=threshold)
 
         if result.get('status') == 'error':
@@ -234,14 +220,12 @@ def retrieve(ctx, query, top_k, threshold, output_format, save):
 
         results = result.get('results', [])
 
-        # 保存结果
         if save and results:
             pipeline.output_manager.save_retrieval_results(
                 query=query,
                 results=results
             )
 
-        # 输出结果
         if not results:
             print("\n未找到相关文档片段")
             return
@@ -282,12 +266,10 @@ def status(ctx):
     try:
         pipeline = PipelineManager(config)
 
-        # 分块数据库统计
         chunk_stats = pipeline.chunk_manager.get_stats()
         print("\n分块数据库:")
         print(f"  总分块数: {chunk_stats.get('total_chunks', 0)}")
 
-        # 向量数据库统计
         try:
             vector_count = pipeline.vector_store.collection.count()
             print(f"\n向量数据库:")
@@ -295,7 +277,6 @@ def status(ctx):
         except Exception:
             print(f"\n向量数据库: 未初始化")
 
-        # 任务文件表统计
         task_stats = pipeline.task_file_manager.get_statistics()
         print(f"\n任务文件表:")
         print(f"  总文件数: {task_stats.get('total', 0)}")
@@ -328,11 +309,9 @@ def clean(ctx, yes, cache, output, vector_db, clean_all, reset_progress, clear_e
         python -m src.main clean --vector-db  # 仅清理向量数据库
         python -m src.main clean --reset-progress  # 仅重置进度
     """
-    # 如果没有指定具体清理项，默认清理所有
     if not any([cache, output, vector_db, reset_progress, clear_errors]):
         clean_all = True
 
-    # 确认操作
     if not yes:
         if clean_all:
             click.confirm('确定要清理所有缓存和临时文件吗？', abort=True)
@@ -344,42 +323,36 @@ def clean(ctx, yes, cache, output, vector_db, clean_all, reset_progress, clear_e
 
         cleaned_items = []
 
-        # 清理缓存目录
         if clean_all or cache:
             cache_dir = Path('./cache')
             if cache_dir.exists():
                 shutil.rmtree(cache_dir)
                 cleaned_items.append("缓存目录")
 
-        # 清理输出目录
         if clean_all or output:
             output_dir = Path('./outputs')
             if output_dir.exists():
                 shutil.rmtree(output_dir)
                 cleaned_items.append("输出目录")
 
-        # 清理向量数据库
         if clean_all or vector_db:
             chroma_db = Path('./chroma_db')
             if chroma_db.exists():
                 shutil.rmtree(chroma_db)
                 cleaned_items.append("向量数据库")
 
-        # 重置进度记录
         if clean_all or reset_progress:
             from src.utils.incremental_tracker import IncrementalTracker
             tracker = IncrementalTracker(ctx.obj['config'].get_all())
             tracker.clear_progress()
             cleaned_items.append("进度记录")
 
-        # 清除错误记录
         if clean_all or clear_errors:
             from src.utils.incremental_tracker import IncrementalTracker
             tracker = IncrementalTracker(ctx.obj['config'].get_all())
             tracker.clear_error_records()
             cleaned_items.append("错误记录")
 
-        # 打印结果
         if cleaned_items:
             print("\n已清理以下项目:")
             for item in cleaned_items:

@@ -214,9 +214,39 @@ class PDFLoader(BaseLoader):
 
         content = '\n\n'.join(texts)
 
-        # 如果内容为空，可能需要OCR
-        if not content.strip() and self.ocr_enabled:
-            raise RuntimeError("PDF内容为空，可能是扫描版PDF，需要OCR")
+        # 检测是否包含大量(cid:xxx)占位符，如果是则触发OCR
+        import re
+        cid_pattern = r'\(cid:\d+\)'
+        cid_matches = re.findall(cid_pattern, content)
+        total_chars = len(content)
+        cid_ratio = len(cid_matches) / total_chars if total_chars > 0 else 0
+
+        # 检查是否有连续的(cid:xxx)占位符
+        consecutive_cid_pattern = r'\(cid:\d+\)\s*\(cid:\d+\)'
+        consecutive_cid_matches = re.findall(consecutive_cid_pattern, content)
+
+        # 更严格的检测：
+        # 1. 占位符占比超过5%
+        # 2. 存在连续的占位符
+        # 3. 占位符数量超过10个
+        need_ocr = False
+        if not content.strip():
+            need_ocr = True
+        elif cid_ratio > 0.05:  # 降低阈值到5%
+            need_ocr = True
+        elif len(consecutive_cid_matches) > 0:
+            need_ocr = True
+        elif len(cid_matches) > 10:
+            need_ocr = True
+
+        # 日志记录
+        if cid_matches:
+            logger.info(f"PDF包含{cid_ratio:.1%}的(cid:xxx)占位符，共{len(cid_matches)}个，连续占位符{len(consecutive_cid_matches)}个")
+
+        # 如果需要OCR，触发OCR
+        if need_ocr and self.ocr_enabled:
+            logger.info("触发OCR处理...")
+            raise RuntimeError("PDF内容包含大量(cid:xxx)占位符，需要OCR")
 
         # 提取元数据
         metadata = self.extract_metadata(file_path)

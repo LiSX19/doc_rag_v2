@@ -3,7 +3,7 @@
 
 # ==================== 路径配置 ====================
 paths:
-  input_dir: "F:\\doc_rag\\data"
+  input_dir: "D:\\Code\\HSKRAG\\doc_rag_v2\\data"
   output_dir: "outputs"
   models_dir: "models"
   logs_dir: "./logs"
@@ -79,8 +79,8 @@ encoder:
   cache_dir: "./cache/encodings"
   incremental: true
   dense:
-    model_name: "BAAI/bge-small-zh-v1.5"
-    model_path: "models/bge-small-zh-v1.5"  # 使用本地模型路径（优先）
+    model_name: "BAAI/bge-base-zh-v1.5"
+    model_path: "models/BAAI_bge-base-zh-v1.5"  # 本地模型路径（优先）
     device: "auto"  # auto/cpu/cuda
     normalize: true
     batch_size: 32
@@ -107,7 +107,7 @@ retriever:
     threshold: 0.5
   rerank:
     enabled: true
-    model: "BAAI/bge-reranker-base"
+    model: "models/BAAI_bge-reranker-base"  # 本地重排序模型路径
 
 # ==================== 输出控制配置 ====================
 output:

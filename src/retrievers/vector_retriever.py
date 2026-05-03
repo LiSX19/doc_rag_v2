@@ -3,6 +3,7 @@
 """
 
 from typing import Any, Dict, List, Optional
+import os
 
 from src.encoders.base import BaseEncoder
 from src.utils import OutputManager, get_logger
@@ -45,7 +46,34 @@ class VectorRetriever(BaseRetriever):
         self.top_k = retriever_config.get('top_k', 5)
         self.threshold = retriever_config.get('filter', {}).get('threshold', 0.5)
         self.use_rerank = retriever_config.get('rerank', {}).get('enabled', False)
-        self.rerank_model = retriever_config.get('rerank', {}).get('model', 'BAAI/bge-reranker-base')
+        
+        # 优先使用本地模型路径
+        models_dir = self.config.get('paths', {}).get('models_dir', './models')
+        default_model = retriever_config.get('rerank', {}).get('model', 'BAAI/bge-reranker-base')
+        
+        # 构建本地模型路径 - 直接使用模型名称作为目录名
+        local_model_path = os.path.join(models_dir, default_model.split('/')[-1])
+        
+        # 检查本地模型是否存在
+        logger.info(f"检查本地模型路径: {local_model_path}")
+        logger.info(f"路径是否存在: {os.path.exists(local_model_path)}")
+        
+        if os.path.exists(local_model_path):
+            self.rerank_model = local_model_path
+            logger.info(f"使用本地重排序模型: {local_model_path}")
+        else:
+            # 尝试另一种路径格式（BAAI_bge-reranker-base）
+            alt_local_path = os.path.join(models_dir, default_model.replace('/', '_'))
+            logger.info(f"尝试替代路径: {alt_local_path}")
+            logger.info(f"替代路径是否存在: {os.path.exists(alt_local_path)}")
+            
+            if os.path.exists(alt_local_path):
+                self.rerank_model = alt_local_path
+                logger.info(f"使用本地重排序模型: {alt_local_path}")
+            else:
+                self.rerank_model = default_model
+                logger.info(f"使用远程重排序模型: {default_model}")
+        
         self._reranker_model = None  # 延迟加载重排序模型
         
         # 输出管理器

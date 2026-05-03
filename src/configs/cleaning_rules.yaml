@@ -54,6 +54,13 @@ rules:
     enabled: false
     priority: 21
 
+  - name: "remove_cid_placeholders"
+    description: "移除PDF中的(cid:xxx)占位符"
+    pattern: "\\(cid:\\d+\\)"
+    replacement: ""
+    enabled: true
+    priority: 22
+
   # ==================== 文档特定规则 ====================
   - name: "remove_figure_captions"
     description: "移除图注（如：图1-1）"
@@ -107,3 +114,4 @@ groups:
       - "normalize_newlines"
       - "remove_page_numbers"
       - "remove_page_headers"
+      - "remove_cid_placeholders"

@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from .base import BaseLoader
+from ..utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class PPTLoader(BaseLoader):
@@ -262,8 +265,17 @@ class PPTLoader(BaseLoader):
         presentation = None
 
         try:
-            # 创建PowerPoint应用实例
-            powerpoint = win32com.client.Dispatch("PowerPoint.Application")
+            # 尝试 Microsoft PowerPoint
+            try:
+                powerpoint = win32com.client.Dispatch("PowerPoint.Application")
+                logger.info("使用 Microsoft PowerPoint COM 组件")
+            except Exception:
+                # 尝试 WPS PowerPoint
+                try:
+                    powerpoint = win32com.client.Dispatch("KWPP.Application")
+                    logger.info("使用 WPS PowerPoint COM 组件")
+                except Exception as e:
+                    raise RuntimeError(f"无法启动 PowerPoint/WPS 组件: {e}")
 
             # 尝试设置可见性（某些情况下可能失败）
             try:
